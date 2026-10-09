@@ -138,6 +138,13 @@ uv run pytest -q
 uv run ruff check src tests
 ```
 
+The container-side recipes (install, config home, run script) are also exercised
+against a real Linux container, which needs Docker and network access:
+
+```bash
+uv run python scripts/container_smoke.py
+```
+
 `VERIFY.md` lists the checks with a case that can make each one go red;
 `FEEDBACK.md` lists the sensors. `AGENTS.md` and `CONTRIBUTING.md` cover
 conventions.
