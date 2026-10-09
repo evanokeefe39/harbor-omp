@@ -6,9 +6,13 @@
      spec and design are backfilled records (see docs/spec.md, docs/design.md),
      not contracts to build against. -->
 
-**The light-phase gate:** § 3. Until one real trial passes acceptance, work here
-stays documentation and non-behavioural; no widening of the capability
-declaration, no new surface.
+**The light-phase gate: § 3 — cleared 2026-10-09.** A real trial now passes
+acceptance (see § 3), so the light phase is over: the spec and design graduate
+from backfilled records to contracts, and behavioural work — § 4, and § 5's
+either/or closes — is now in scope. The one caveat is the silent no-op trials
+found in the 30-task run (`docs/worked-example.md` § 3): they are a **defect to
+fix**, not an accepted limitation, and no pass/fail rate is trustworthy until
+they are excluded.
 
 ## Status at a glance
 
@@ -16,8 +20,8 @@ declaration, no new surface.
 |---|---|---|---|
 | 1 | Verify the package | ✅ done | 116 tests, ruff, format, `lint-imports` — all green |
 | 2 | Container smoke | ✅ done | `container_smoke.py` on real ubuntu:24.04, exit 0 |
-| 3 | Real-trial acceptance | ⛔ blocked | — (behind the harness-evals batch) |
-| 4 | harness-evals cutover | ⛔ blocked | — (behind § 3) |
+| 3 | Real-trial acceptance | ✅ done | acceptance trial, 2 GiB Daytona sandbox ([run record](worked-example.md#2-the-acceptance-trial)) |
+| 4 | harness-evals cutover | ⬜ open | — (unblocked: § 3 passed; needs a kwargs mapping layer) |
 | 5 | README gaps | ⬜ open | — (unblocked) |
 | 6 | Publishing | ✅ done | public repo, 3 PRs merged, CI green |
 
@@ -47,32 +51,43 @@ evidence present`.
 Docker Desktop's daemon is often down — start it and confirm `docker ps` answers
 before concluding the smoke is unavailable.
 
-## 3. Real-trial acceptance — blocked ⭐ (the gate)
+## 3. Real-trial acceptance — done ⭐ (the gate)
 
-**Blocked by:** the harness-evals `baseline30b` fast-30 batch, which holds the
-Daytona org's only sandbox budget (7 GiB per sandbox against a 10 GiB cap, so one
-at a time). Last observed: live, `--concurrency 1`, ~4/30 pairs done, storing to
-`store-daytona`. Do not attempt a concurrent trial — it dies at sandbox creation.
+One trial, `cohort-retention-matrix`, `--agent harbor_omp:OmpAgent`, on a Daytona
+sandbox at **2 GiB** (`override_memory_mb: 3000` → Daytona floors to 2 GiB).
+Full record: [`docs/worked-example.md`](worked-example.md).
 
-**When the batch clears**, run one trial against `cohort-retention-matrix` with
-`--agent harbor_omp:OmpAgent`. **Acceptance:**
+**Acceptance:**
 
-- `agent/trajectory.json` exists and validates (`TrajectoryValidator` clean);
-- `profile_mismatches` is empty;
-- tokens **≥** the incumbent's row for the same session (the delta being the
-  `model_usage` records the incumbent drops);
-- the verdict matches the batch row.
+- ✅ `agent/trajectory.json` exists and validates — 962,818 bytes, ATIF v1.8,
+  `validate_trajectory` → True, 106 steps;
+- ⚠️ **`profile_mismatches` does not apply to a standalone run** — that field is
+  produced by the harness-evals evidence collector, which this package does not
+  provide. The criterion was written for a store row; it is dropped here, not
+  silently passed;
+- ✅ tokens **≥** the incumbent's row (1,718,691 vs 1,661,951);
+- ✅ the verdict matches the batch row (both `fail`, reward 0).
 
-This is the check that would retire the spec's two `[NEEDS CLARIFICATION]`
-items; it is also the first evidence that Harbor's environment class, the
-`/logs/agent` mount and the upload path work with this agent.
+Other observed numbers: `n_errored_trials: 0`, verifier 23/24 pytest,
+**$0.074** provider-reported cost, zero OOM at 2 GiB.
 
-## 4. harness-evals cutover — blocked
+This is the evidence that Harbor's environment class, the `/logs/agent` mount
+and the upload path work with this agent. It also leaves one caveat that the
+spec's `[NEEDS CLARIFICATION]` items do **not** fully retire: a standalone run
+has no `profile_mismatches` signal, and a later 30-task run surfaced silent
+no-op trials (`docs/worked-example.md` § 3) that must be excluded before any
+pass/fail rate is trusted.
+
+## 4. harness-evals cutover — open, unblocked
 
 Lives in **harness-evals**, not here: delete `evals/harbor_agent/omp_adapter.py`
-and depend on the published package. Blocked by § 3 (the batch must finish, and
-the acceptance must pass first). Do not edit harness-evals while its batch runs —
-it imports that repo's code and an edit splits the run.
+and depend on the published package. § 3 now passes, so this is unblocked — but
+it is **not an import-path swap**: `evals/runners/run_trial.py`'s
+`build_job_config()` emits the fused adapter's kwarg names (`profile_seed`,
+`omp_config`, `router_plugin`) while this package uses `seed`, `config_source`,
+`plugin` (`run_flags` and `thinking` already match). A mapping layer is
+required. Do not edit harness-evals while a batch of its own is running — it
+imports that repo's code and an edit splits the run.
 
 ## 5. README gaps — open, unblocked
 
@@ -109,7 +124,10 @@ That step needs an explicit go-ahead.
 
 ## Next actions
 
-1. **Check whether `baseline30b` has finished** — if it has and the sandbox is
-   free, run § 3.
-2. **Or proceed with § 5** (streaming first) — unblocked, no sandbox.
-3. **PyPI** — needs an explicit go-ahead; nothing is published.
+1. **Fix the silent no-op trials** — the highest-value item: ~half the 30-task
+   run answered an idle greeting and exited. Characterised in
+   `docs/worked-example.md` § 3; needs a root cause and a guard (detect
+   `omp_steps == 1`, fail the trial loudly rather than scoring 0).
+2. **§ 4 cutover** — unblocked, but needs the kwargs mapping layer named there.
+3. **§ 5 README gaps** — streaming first; no sandbox needed.
+4. **PyPI** — needs an explicit go-ahead; nothing is published.
