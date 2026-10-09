@@ -29,9 +29,7 @@ EXPECTED_MEMBERS = {"agent/AGENTS.md", "agent/skills/duckdb/SKILL.md"}
 
 
 def _agent_with_config(make_agent, repo: Path, **options: object):
-    return make_agent(
-        config_source=str(repo), config_paths=list(CONFIG_PATHS), **options
-    )
+    return make_agent(config_source=str(repo), config_paths=list(CONFIG_PATHS), **options)
 
 
 def test_a_clean_checkout_ships_exactly_the_named_paths(make_agent, config_repo) -> None:
@@ -130,9 +128,7 @@ def test_the_seed_is_written_into_the_config_home(make_agent) -> None:
     """The seed is plain data: each entry is uploaded beside the others and
     copied into the config dir after the reset."""
     env = RecordingEnvironment()
-    agent = make_agent(
-        seed={"omp.json": '{"model": "x"}\n', "agent/config.yml": "task: {}\n"}
-    )
+    agent = make_agent(seed={"omp.json": '{"model": "x"}\n', "agent/config.yml": "task: {}\n"})
 
     asyncio.run(agent.install(env))
 
@@ -148,18 +144,16 @@ def test_the_seed_is_written_into_the_config_home(make_agent) -> None:
     seed = SEED_DIR.as_posix()
     config_dir = "/tmp/omp-home/.omp"
     assert f"cp -a {seed}/. {config_dir}/" in script
-    assert script.index("rm -rf /tmp/omp-home") < script.index(
-        f"cp -a {seed}/. {config_dir}/"
-    ), "the seed must be copied in after the reset"
+    assert script.index("rm -rf /tmp/omp-home") < script.index(f"cp -a {seed}/. {config_dir}/"), (
+        "the seed must be copied in after the reset"
+    )
 
 
 @pytest.mark.parametrize(
     "bad_path",
     ["/etc/passwd", "../outside.md", "agent\\config.yml"],
 )
-def test_a_seed_path_that_escapes_or_uses_backslashes_is_refused(
-    make_agent, bad_path: str
-) -> None:
+def test_a_seed_path_that_escapes_or_uses_backslashes_is_refused(make_agent, bad_path: str) -> None:
     """An upload target a caller did not mean is a silent misconfig, so it is
     refused before anything is uploaded."""
     env = RecordingEnvironment()

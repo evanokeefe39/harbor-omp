@@ -43,9 +43,7 @@ class RecordingEnvironment:
         timeout_sec: int | None = None,
         user: str | int | None = None,
     ) -> ExecResult:
-        self.execs.append(
-            {"command": command, "user": user, "env": env, "cwd": cwd}
-        )
+        self.execs.append({"command": command, "user": user, "env": env, "cwd": cwd})
         self.sequence.append(("exec", command))
         return ExecResult(return_code=0, stdout=self.stdout)
 

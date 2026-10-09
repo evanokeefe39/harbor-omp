@@ -83,9 +83,7 @@ def test_the_config_home_step_installs_enables_and_configures_the_plugin(
     every setting is passed through as a string omp understands."""
     repo, _ = plugin_repo
     agent = make_agent(
-        **_plugin_options(
-            repo, settings={"router": True, "verbose": False, "level": "fast"}
-        )
+        **_plugin_options(repo, settings={"router": True, "verbose": False, "level": "fast"})
     )
 
     script = agent._config_home_command()
@@ -133,9 +131,7 @@ def test_a_plugin_without_a_name_aborts(make_agent, plugin_repo) -> None:
     env = RecordingEnvironment()
 
     with pytest.raises(ValueError, match="plugin.name"):
-        asyncio.run(
-            make_agent(**{"plugin": {"src": str(repo)}, "run_flags": []}).install(env)
-        )
+        asyncio.run(make_agent(**{"plugin": {"src": str(repo)}, "run_flags": []}).install(env))
 
     assert env.uploads == []
 
@@ -145,9 +141,7 @@ def test_a_plugin_without_a_source_aborts(make_agent) -> None:
     env = RecordingEnvironment()
 
     with pytest.raises(ValueError, match="plugin.src"):
-        asyncio.run(
-            make_agent(**{"plugin": {"name": "demo-plugin"}, "run_flags": []}).install(env)
-        )
+        asyncio.run(make_agent(**{"plugin": {"name": "demo-plugin"}, "run_flags": []}).install(env))
 
     assert env.uploads == []
 

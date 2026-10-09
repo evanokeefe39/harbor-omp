@@ -125,9 +125,7 @@ def test_a_plugin_without_run_flags_is_refused(make_agent) -> None:
 def test_a_plugin_with_explicit_run_flags_is_accepted(make_agent) -> None:
     """The way to ship a plugin is to say so: explicit flags are the caller's
     decision about what omp loads, and they reach the argv."""
-    agent = make_agent(
-        plugin={"name": "demo-plugin", "src": "/tmp/plugin-src"}, run_flags=[]
-    )
+    agent = make_agent(plugin={"name": "demo-plugin", "src": "/tmp/plugin-src"}, run_flags=[])
 
     argv, _ = agent._run_argv("do the task")
 
@@ -138,9 +136,7 @@ def test_a_plugin_with_explicit_run_flags_is_accepted(make_agent) -> None:
     "value",
     ["", "   ", " /", "a/b", "a\\b", "..", ".", "two words", "trailing "],
 )
-def test_a_session_dir_name_that_is_not_one_path_segment_is_refused(
-    make_agent, value: str
-) -> None:
+def test_a_session_dir_name_that_is_not_one_path_segment_is_refused(make_agent, value: str) -> None:
     """The name is spliced into container paths and shell commands, so it must
     be one path segment: anything else would silently write outside the log
     dir or split into two arguments."""

@@ -48,9 +48,7 @@ def test_no_source_file_references_the_evals_package() -> None:
     for path in sorted(SOURCE_ROOT.rglob("*.py")):
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if EVALS_REFERENCE.search(line):
-                offenders.append(
-                    f"{path.relative_to(PACKAGE_ROOT)}:{number}: {line.strip()}"
-                )
+                offenders.append(f"{path.relative_to(PACKAGE_ROOT)}:{number}: {line.strip()}")
 
     assert offenders == []
 

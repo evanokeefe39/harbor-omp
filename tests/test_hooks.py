@@ -44,9 +44,7 @@ def _hook_agent(logs_dir: Path, **options: object) -> OmpAgent:
     arguments: dict[str, object] = {
         "logs_dir": logs_dir,
         "model_name": MODEL,
-        "environment_logs_dir": PurePosixPath(
-            f"/tmp/harbor-omp-hook-{uuid.uuid4().hex[:10]}"
-        ),
+        "environment_logs_dir": PurePosixPath(f"/tmp/harbor-omp-hook-{uuid.uuid4().hex[:10]}"),
     }
     arguments.update(options)
     return OmpAgent(**arguments)
@@ -197,16 +195,12 @@ def test_the_workspace_is_the_shared_working_directory(tmp_path: Path) -> None:
     # /app does not exist on a test host, so both report the fallback cwd — the
     # point is that they agree.
     pre = next(line for line in result.stdout.splitlines() if line.startswith("PRE-CWD="))
-    agent_cwd = next(
-        line for line in result.stdout.splitlines() if line.startswith("AGENT-CWD=")
-    )
+    agent_cwd = next(line for line in result.stdout.splitlines() if line.startswith("AGENT-CWD="))
     assert pre.split("=", 1)[1] == agent_cwd.split("=", 1)[1]
 
 
 @pytest.mark.parametrize("where", ["pre", "post"])
-def test_commands_that_touch_the_session_dir_are_not_swallowed(
-    tmp_path: Path, where: str
-) -> None:
+def test_commands_that_touch_the_session_dir_are_not_swallowed(tmp_path: Path, where: str) -> None:
     """A hook's own output is visible: the failure lines are the only thing the
     adapter adds."""
     agent = _hook_agent(tmp_path, **{f"{where}_commands": ['echo "HOOK-OUTPUT"']})
