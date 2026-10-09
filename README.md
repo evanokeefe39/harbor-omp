@@ -173,8 +173,10 @@ uv run python scripts/container_smoke.py
 ```
 
 `VERIFY.md` lists the checks with a case that can make each one go red;
-`FEEDBACK.md` lists the sensors. `AGENTS.md` and `CONTRIBUTING.md` cover
-conventions.
+`FEEDBACK.md` lists the sensors. [`docs/spec.md`](docs/spec.md) states what the
+package must do, [`docs/design.md`](docs/design.md) records the shape chosen and
+the alternatives it won against, and [`docs/plan.md`](docs/plan.md) tracks the
+remaining workstreams. `AGENTS.md` and `CONTRIBUTING.md` cover conventions.
 
 ## Licence
 
