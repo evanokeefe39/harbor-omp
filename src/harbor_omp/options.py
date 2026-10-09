@@ -14,19 +14,20 @@ from __future__ import annotations
 from typing import Any
 
 from harbor.agents.options import InstalledAgentOptions
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 
 #: The npm package that ships the omp CLI.
 OMP_PACKAGE = "@oh-my-pi/pi-coding-agent"
 
-#: The omp dist the install pins when ``version`` is left alone (spike S2 pin).
+#: The omp dist the install pins when ``version`` is left alone.
 PINNED_OMP_VERSION = f"{OMP_PACKAGE}@18.6.0"
 
-#: The run flags a trial with no ``run_flags`` uses: the measured S2 recipe with
-#: every optional extension off. ``--no-extensions`` also gates omp plugins, so
-#: a trial that installs one passes explicit ``run_flags`` instead; ``[]`` runs
-#: omp with its own defaults.
-LEGACY_RUN_FLAGS: tuple[str, ...] = (
+#: The run flags a trial with no ``run_flags`` uses: every optional extension
+#: off, which is what keeps a trial's tools the ones the caller pinned.
+#: ``--no-extensions`` also gates omp plugins, so this default is refused
+#: alongside ``plugin`` (see ``OmpOptions``); ``[]`` runs omp with its own
+#: defaults.
+MINIMAL_EXTENSIONS_FLAGS: tuple[str, ...] = (
     "--no-extensions",
     "--no-skills",
     "--no-rules",
@@ -73,6 +74,54 @@ class OmpOptions(InstalledAgentOptions):
 
         return PINNED_OMP_VERSION if value is None else value
 
+    @field_validator("session_dir_name")
+    @classmethod
+    def _one_path_segment(cls, value: str) -> str:
+        """The name is spliced into container paths and shell commands, so it
+        must be one relative path segment.
+
+        Raises:
+            ValueError: When the value is blank, carries whitespace, or is not a
+                single path segment — a name with a separator would silently
+                write outside the environment log dir, and one with a space
+                would split into two arguments.
+        """
+
+        if not value or any(character.isspace() for character in value):
+            raise ValueError(
+                f"session_dir_name={value!r} must be one path segment with no "
+                "whitespace (for example 'omp-sessions'); it is spliced into "
+                "container paths and shell commands"
+            )
+        if value in (".", "..") or "/" in value or "\\" in value:
+            raise ValueError(
+                f"session_dir_name={value!r} must be one path segment with no "
+                "separators (for example 'omp-sessions'); it is spliced into "
+                "container paths and shell commands"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _a_plugin_needs_flags_that_load_it(self) -> OmpOptions:
+        """Refuse a plugin the default flags would disable.
+
+        ``--no-extensions`` also gates plugin discovery, so ``plugin`` with the
+        default recipe would install a plugin that never loads — with no error
+        from omp and no sign in the trial.
+
+        Raises:
+            ValueError: When ``plugin`` is set and ``run_flags`` is unset.
+        """
+
+        if self.plugin is not None and self.run_flags is None:
+            raise ValueError(
+                "plugin is set but run_flags is unset; the default flags "
+                "include --no-extensions, which also disables plugin loading, "
+                "so the plugin would install and never load. Pass run_flags "
+                "explicitly (run_flags=[] runs omp with its own defaults)"
+            )
+        return self
+
     version: str = Field(
         default=PINNED_OMP_VERSION,
         description=(
@@ -90,9 +139,11 @@ class OmpOptions(InstalledAgentOptions):
         default=None,
         description=(
             "The omp flags the run passes, verbatim and in order. None uses the "
-            "S2 recipe default (--no-extensions --no-skills --no-rules "
-            "--no-lsp); [] runs omp with its own defaults. The exact argv is "
-            "recorded in run-flags.json before omp launches."
+            "minimal-extension default (--no-extensions --no-skills --no-rules "
+            "--no-lsp); [] runs omp with its own defaults. A trial that installs "
+            "a plugin must pass its flags explicitly, because the minimal "
+            "default also disables plugin loading. The exact argv is recorded "
+            "in run-flags.json before omp launches."
         ),
     )
     install_only: bool = Field(
@@ -106,11 +157,11 @@ class OmpOptions(InstalledAgentOptions):
         default=None,
         description=(
             "A HOST path to a git checkout whose committed HEAD carries config "
-            "content to ship (skills, rules, agents, hooks). The checkout must "
-            "be clean; the archive is restricted to config_paths; the tar is "
-            "extracted into the isolated config dir after the home is reset. A "
-            "source that cannot be pinned aborts the trial before any upload "
-            "and before any model spend."
+            "content to ship (skills, rules, agents, hooks). The shipped paths "
+            "must have no uncommitted changes to tracked files; the archive is "
+            "restricted to config_paths; the tar is extracted into the isolated "
+            "config dir after the home is reset. A source that cannot be pinned "
+            "aborts the trial before any upload and before any model spend."
         ),
     )
     config_paths: list[str] | None = Field(
@@ -145,7 +196,7 @@ class OmpOptions(InstalledAgentOptions):
         ),
     )
     config_home: str = Field(
-        default="/tmp/profile-home",
+        default="/tmp/omp-home",
         description=(
             "The HOME the agent runs under, and the root of the isolated config "
             "dir (<config_home>/.omp, with PI_CONFIG_DIR=.omp). The adapter "

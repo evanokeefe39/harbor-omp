@@ -60,11 +60,11 @@ def test_the_shipped_content_lands_after_the_home_reset(make_agent, config_repo)
 
     asyncio.run(_agent_with_config(make_agent, repo).install(env))
 
-    reset = env.index_of_first("exec", "rm -rf /tmp/profile-home")
+    reset = env.index_of_first("exec", "rm -rf /tmp/omp-home")
     extract = env.index_of_first("exec", f"tar -xf {CONFIG_TAR.as_posix()}")
     assert reset < extract
     extract_command = env.commands_matching(f"tar -xf {CONFIG_TAR.as_posix()}")[0]
-    assert "-C /tmp/profile-home/.omp" in extract_command
+    assert "-C /tmp/omp-home/.omp" in extract_command
     assert all(
         entry["user"] != "root"
         for entry in env.execs
@@ -123,7 +123,7 @@ def test_no_source_means_no_config_calls(make_agent) -> None:
 
     assert env.uploads_matching("config") == []
     assert env.commands_matching(f"tar -xf {CONFIG_TAR.as_posix()}") == []
-    assert len(env.commands_matching("rm -rf /tmp/profile-home")) == 1
+    assert len(env.commands_matching("rm -rf /tmp/omp-home")) == 1
 
 
 def test_the_seed_is_written_into_the_config_home(make_agent) -> None:
@@ -146,9 +146,9 @@ def test_the_seed_is_written_into_the_config_home(make_agent) -> None:
 
     script = agent._config_home_command()
     seed = SEED_DIR.as_posix()
-    config_dir = "/tmp/profile-home/.omp"
+    config_dir = "/tmp/omp-home/.omp"
     assert f"cp -a {seed}/. {config_dir}/" in script
-    assert script.index("rm -rf /tmp/profile-home") < script.index(
+    assert script.index("rm -rf /tmp/omp-home") < script.index(
         f"cp -a {seed}/. {config_dir}/"
     ), "the seed must be copied in after the reset"
 

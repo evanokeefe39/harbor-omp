@@ -33,8 +33,9 @@ def test_the_run_flags_option_is_what_the_argv_carries(make_agent) -> None:
     assert model == MODEL
 
 
-def test_no_run_flags_uses_the_s2_recipe(make_agent) -> None:
-    """The measured default: every optional extension off."""
+def test_no_run_flags_turns_every_optional_extension_off(make_agent) -> None:
+    """The default recipe: omp runs with no extensions, skills, rules or LSP,
+    which is what keeps a trial's tools the ones the caller pinned."""
     agent = make_agent()
 
     argv, _ = agent._run_argv("do the task")

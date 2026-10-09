@@ -44,10 +44,10 @@ from harbor.agents.capabilities import AgentCapabilities
 from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
 from harbor.agents.model_connection import ModelConnectionSpec
 from harbor.environments.base import BaseEnvironment
-from harbor.models.agent.context import AgentContext
+from harbor.models.agent.context import AgentContext, ModelUsage
 
 from harbor_omp import hooks, install, session
-from harbor_omp.options import LEGACY_RUN_FLAGS, OmpOptions, package_spec
+from harbor_omp.options import MINIMAL_EXTENSIONS_FLAGS, OmpOptions, package_spec
 
 # ---------------------------------------------------------------------------
 # Container paths. Everything the adapter writes lives under /tmp or under the
@@ -564,16 +564,18 @@ class OmpAgent(BaseInstalledAgent):
             # Saved before the post-commands run, so nothing they do — not even
             # reusing the adapter's variable names — can change this status.
             "harbor_omp_agent_rc=$rc",
+            # The post block is one subshell (hooks.post_command_lines), so an
+            # exit, an EXIT trap or `set -e` inside it stays inside it.
             *hooks.post_command_lines(self.options.post_commands),
             "exit $harbor_omp_agent_rc",
         ]
         return "\n".join(lines)
 
     def _effective_run_flags(self) -> list[str]:
-        """The flags the run passes: ``run_flags`` when set, else the S2 recipe."""
+        """The flags the run passes: ``run_flags`` when set, else the default."""
 
         if self.options.run_flags is None:
-            return list(LEGACY_RUN_FLAGS)
+            return list(MINIMAL_EXTENSIONS_FLAGS)
         return list(self.options.run_flags)
 
     def _run_argv(self, instruction: str) -> tuple[list[str], str]:
@@ -604,26 +606,39 @@ class OmpAgent(BaseInstalledAgent):
     # ------------------------------------------------------------------
     @override
     def populate_context_post_run(self, context: AgentContext) -> None:
-        """Sum the session JSONL into the agent context (tokens, cache, cost)."""
+        """Sum the session JSONL into the agent context (tokens, cache, cost).
+
+        The per-model breakdown comes from the same pass, so an auxiliary model
+        omp reports through ``model_usage`` is visible without an ATIF
+        trajectory. A session nobody can read leaves the context empty rather
+        than filling it with zeros.
+        """
 
         session_dir = self.logs_dir / self.options.session_dir_name
         usage = session.sum_session_usage(session_dir)
         if usage is None:
             self.logger.warning(
-                "omp session JSONL not found under %s; the trial reports no "
-                "token or cost totals",
+                "no readable omp session JSONL under %s (absent, or every file "
+                "failed to read); the trial reports no token or cost totals",
                 session_dir,
             )
             return
-        skipped = usage.skipped_files + usage.skipped_lines + usage.skipped_values
+        skipped = (
+            usage.skipped_files
+            + usage.skipped_lines
+            + usage.skipped_values
+            + usage.unattributed_records
+        )
         if skipped:
             self.logger.warning(
-                "omp session JSONL under %s: skipped %d file(s), %d line(s) and "
-                "%d usage value(s); the totals below may be low",
+                "omp session JSONL under %s: skipped %d file(s), %d line(s), "
+                "%d usage value(s) and %d unattributable usage record(s); the "
+                "totals below may be low",
                 session_dir,
                 usage.skipped_files,
                 usage.skipped_lines,
                 usage.skipped_values,
+                usage.unattributed_records,
             )
         # AgentContext.n_input_tokens includes cached tokens; omp reports them
         # separately, so the total is input + cache read + cache write.
@@ -631,6 +646,16 @@ class OmpAgent(BaseInstalledAgent):
         context.n_output_tokens = usage.output_tokens
         context.n_cache_tokens = usage.cache_read_tokens
         context.cost_usd = round(usage.cost_usd, 6) if usage.cost_usd > 0 else None
+        if usage.models:
+            context.model_usage = {
+                model: ModelUsage(
+                    n_input_tokens=totals.total_input_tokens,
+                    n_cache_tokens=totals.cache_read_tokens,
+                    n_output_tokens=totals.output_tokens,
+                    cost_usd=round(totals.cost_usd, 6) if totals.cost_usd > 0 else None,
+                )
+                for model, totals in sorted(usage.models.items())
+            }
         context.metadata = {"omp_steps": usage.steps}
 
     @property

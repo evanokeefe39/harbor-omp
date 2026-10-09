@@ -33,6 +33,13 @@ the three hooks below — the fields live on ``OmpOptions`` (``extra_files``,
     exits with the agent's status. Evidence collection must not turn a passing
     trial red, and must not hide a failing one behind its own failure.
 
+    The whole block runs in one subshell, so containment is structural rather
+    than a consequence of the caller's good behaviour: an ``exit``, an ``EXIT``
+    trap or a ``set -e`` inside a post-command ends the subshell and nothing
+    else. Shell state a post-command changes — variables, the working
+    directory, shell options, traps — does not outlive the block; files it
+    writes do, which is what collection needs.
+
 The commands are the caller's shell text. The adapter runs them in one script
 with the agent, so the caller's lines share its working directory (``/app``)
 and its isolated ``HOME`` / ``PI_CONFIG_DIR``; the home the agent started from
@@ -74,23 +81,29 @@ def pre_command_lines(commands: Sequence[str] | None) -> list[str]:
 
 
 def post_command_lines(commands: Sequence[str] | None) -> list[str]:
-    """Render post-commands as script lines that never change the exit code.
+    """Render post-commands as one subshell that never changes the exit code.
 
     The script has already saved the agent's status in ``harbor_omp_agent_rc``
     and exits with that value, so a failing post-command is loud (stderr) but
-    cannot turn a red trial green or the reverse.
+    cannot turn a red trial green or the reverse. The commands go inside a
+    subshell because line order alone is not containment: ``exit`` would
+    replace the script's status, ``trap 'exit 0' EXIT`` would replace it at
+    exit, and ``set -e`` would end the script before the status was even
+    recorded. The parent reports the subshell's own status instead.
     """
 
-    lines: list[str] = []
-    for command in commands or ():
-        lines += [
-            command,
-            f"{_HOOK_RC}=$?",
-            f'if [ "${_HOOK_RC}" -ne 0 ]; then',
-            (
-                f'  echo "harbor-omp: post-command failed (rc=${_HOOK_RC}); '
-                'the agent exit code is unchanged" >&2'
-            ),
-            "fi",
-        ]
-    return lines
+    rendered = [command for command in commands or () if command.strip()]
+    if not rendered:
+        return []
+    return [
+        "(",
+        *rendered,
+        ")",
+        f"{_HOOK_RC}=$?",
+        f'if [ "${{{_HOOK_RC}}}" -ne 0 ]; then',
+        (
+            f'  echo "harbor-omp: post-command failed (rc=${_HOOK_RC}); '
+            'the agent exit code is unchanged" >&2'
+        ),
+        "fi",
+    ]

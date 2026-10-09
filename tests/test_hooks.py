@@ -125,6 +125,44 @@ def test_a_post_command_cannot_steal_the_exit_code(tmp_path: Path) -> None:
     assert result.returncode == 0
 
 
+@pytest.mark.parametrize(
+    ("agent_rc", "post_command"),
+    [
+        # A green agent must stay green even when the post side exits non-zero.
+        (0, "exit 7"),
+        # A failing agent must report its own status, not the post side's 0:
+        # this is the shape that used to turn a red trial green, so Harbor's
+        # error classifier never saw the failure.
+        (3, "exit 0"),
+        (5, "trap 'exit 0' EXIT"),
+    ],
+)
+def test_a_post_command_cannot_replace_the_agents_status(
+    tmp_path: Path, agent_rc: int, post_command: str
+) -> None:
+    """A post-command that exits, or that traps EXIT, used to end the run with
+    its own status; the block is contained, so the agent's status is what the
+    run reports."""
+    agent = _hook_agent(tmp_path, post_commands=[post_command])
+
+    result = run_script(agent, omp_body=f"echo AGENT-RAN; return {agent_rc}")
+
+    assert "AGENT-RAN" in result.stdout
+    assert result.returncode == agent_rc
+
+
+def test_errexit_in_a_post_command_cannot_kill_the_run(tmp_path: Path) -> None:
+    """``set -e`` used to end the whole script at the first failing
+    post-command, before the hook's own status was recorded: the failure line
+    never printed and a green agent was reported as a failed run."""
+    agent = _hook_agent(tmp_path, post_commands=["set -e", "false"])
+
+    result = run_script(agent, omp_body="echo AGENT-RAN; return 0")
+
+    assert result.returncode == 0
+    assert "post-command failed" in result.stderr
+
+
 def test_pre_commands_and_post_commands_run_in_order(tmp_path: Path) -> None:
     """Before the agent, then the agent, then after it — the collector pattern
     depends on the post side really being after."""

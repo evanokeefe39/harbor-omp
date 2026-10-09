@@ -8,7 +8,8 @@ real omp install, and checks the results it can only get there:
 * the config home step lands a seed at ``<config_home>/.omp/<relpath>``;
 * the real CLI runs under the isolated ``HOME``/``PI_CONFIG_DIR``;
 * the run script's pre-command export reaches the agent, a failing pre-command
-  aborts before it, and the agent's own status is what the script reports.
+  aborts before it, and the agent's own status is what the script reports —
+  even when a post-command exits.
 
 Requires Docker and network access (bun's installer and the npm registry). It is
 **not** part of CI, and it never calls a model: the agent itself is stubbed.
@@ -57,15 +58,18 @@ printf '{"model": "smoke"}\n' > /tmp/harbor-omp-seed/omp.json
 printf 'task: {}\n' > /tmp/harbor-omp-seed/agent/config.yml
 echo "== config home step =="
 bash /work/home.sh; echo "home rc=$?"
-find /tmp/profile-home | sort
+find /tmp/omp-home | sort
 echo "== the real CLI under the isolated home =="
-HOME=/tmp/profile-home PI_CONFIG_DIR=.omp omp --version
+HOME=/tmp/omp-home PI_CONFIG_DIR=.omp omp --version
 echo "== run script, agent stubbed =="
 bash -c 'source /work/stub_ok.sh; source /work/run.sh'; echo "run rc=$?"
 echo "== failing pre-command must abort before the agent =="
 bash -c 'source /work/stub_fail.sh; source /work/run_failpre.sh'; echo "run rc=$?"
 echo "== agent rc 7 must propagate, post-command still runs =="
 FAKE_OMP_RC=7 bash -c 'source /work/stub_ok.sh; source /work/run.sh'; echo "run rc=$?"
+echo "== a post-command that exits must not replace that status =="
+FAKE_OMP_RC=7 bash -c 'source /work/stub_ok.sh; source /work/run_exit.sh'
+echo "post-exit rc=$?"
 echo "== captured agent output =="; cat /logs/agent/omp.txt
 """
 
@@ -74,13 +78,14 @@ echo "== captured agent output =="; cat /logs/agent/omp.txt
 EXPECTED = (
     "install rc=0",
     "omp/18.6.0",
-    "/tmp/profile-home/.omp/omp.json",
-    "/tmp/profile-home/.omp/agent/config.yml",
+    "/tmp/omp-home/.omp/omp.json",
+    "/tmp/omp-home/.omp/agent/config.yml",
     "probe=from-pre-command",
     "pre-command failed (rc=1)",
     "aborting before the agent runs",
     "run rc=1",
     "run rc=7",
+    "post-exit rc=7",
     "POST-RAN",
 )
 
@@ -104,8 +109,10 @@ def _write_scripts(work: Path) -> None:
         post_commands=["echo POST-RAN"],
     )
     failing = _agent(seed={"omp.json": "{}\n"}, pre_commands=["false"])
+    post_exit = _agent(post_commands=["echo POST-RAN; exit 0"])
     argv, _ = seeded._run_argv("do the task")
     fail_argv, _ = failing._run_argv("do the task")
+    post_exit_argv, _ = post_exit._run_argv("do the task")
     scripts = {
         "install.sh": install_command(
             seeded.options.version,
@@ -117,6 +124,7 @@ def _write_scripts(work: Path) -> None:
         "home.sh": seeded._config_home_command(),
         "run.sh": seeded._run_command(argv),
         "run_failpre.sh": failing._run_command(fail_argv),
+        "run_exit.sh": post_exit._run_command(post_exit_argv),
         "stub_ok.sh": STUB_OK,
         "stub_fail.sh": STUB_FAIL,
         "driver.sh": DRIVER,

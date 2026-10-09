@@ -12,6 +12,7 @@ scripts out of the container.
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Sequence
 from pathlib import PurePosixPath
 
@@ -55,11 +56,11 @@ def install_command(spec: str, *, directories: Sequence[PurePosixPath] = ()) -> 
             "the install command needs a package spec "
             "(for example '@oh-my-pi/pi-coding-agent@18.6.0')"
         )
-    layout = " ".join(directory.as_posix() for directory in directories)
+    layout = " ".join(shlex.quote(directory.as_posix()) for directory in directories)
     command = (
         "set -euo pipefail; "
         f"{bun_path_snippet()} && "
-        f"bun install -g --ignore-scripts {spec} && "
+        f"bun install -g --ignore-scripts {shlex.quote(spec)} && "
         "omp --version"
     )
     if layout:

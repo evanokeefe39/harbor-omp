@@ -28,8 +28,16 @@ from harbor_omp.omp_agent import (
 INDEX_TS = b"export const name = 'demo-plugin';\n"
 
 
-def _plugin(source: Path) -> dict[str, object]:
-    return {"name": "demo-plugin", "src": str(source)}
+def _plugin_options(source: Path, **extra: object) -> dict[str, object]:
+    """The options of a trial that ships a plugin.
+
+    ``run_flags`` is explicit because the default recipe includes
+    ``--no-extensions``, which also gates plugin loading: ``OmpOptions``
+    refuses a plugin that would install and never load.
+    """
+    plugin: dict[str, object] = {"name": "demo-plugin", "src": str(source)}
+    plugin.update(extra)
+    return {"plugin": plugin, "run_flags": []}
 
 
 def test_a_clean_checkout_is_archived_uploaded_extracted_and_recorded(
@@ -39,7 +47,7 @@ def test_a_clean_checkout_is_archived_uploaded_extracted_and_recorded(
     extraction runs as the agent user, and the record names the commit, the
     plugin and the host path the trial ran."""
     repo, sha = plugin_repo
-    agent = make_agent(plugin=_plugin(repo))
+    agent = make_agent(**_plugin_options(repo))
     env = RecordingEnvironment()
 
     asyncio.run(agent.install(env))
@@ -75,10 +83,9 @@ def test_the_config_home_step_installs_enables_and_configures_the_plugin(
     every setting is passed through as a string omp understands."""
     repo, _ = plugin_repo
     agent = make_agent(
-        plugin={
-            **_plugin(repo),
-            "settings": {"router": True, "verbose": False, "level": "fast"},
-        }
+        **_plugin_options(
+            repo, settings={"router": True, "verbose": False, "level": "fast"}
+        )
     )
 
     script = agent._config_home_command()
@@ -89,7 +96,7 @@ def test_the_config_home_step_installs_enables_and_configures_the_plugin(
     assert "omp plugin config set demo-plugin router true" in script
     assert "omp plugin config set demo-plugin verbose false" in script
     # The install runs under the isolated home, like the agent does.
-    assert f"HOME=/tmp/profile-home PI_CONFIG_DIR={CONFIG_DIR_NAME}" in script
+    assert f"HOME=/tmp/omp-home PI_CONFIG_DIR={CONFIG_DIR_NAME}" in script
 
 
 def test_a_dirty_checkout_aborts_before_any_upload(make_agent, plugin_repo) -> None:
@@ -100,7 +107,7 @@ def test_a_dirty_checkout_aborts_before_any_upload(make_agent, plugin_repo) -> N
     env = RecordingEnvironment()
 
     with pytest.raises(ValueError, match="uncommitted"):
-        asyncio.run(make_agent(plugin=_plugin(repo)).install(env))
+        asyncio.run(make_agent(**_plugin_options(repo)).install(env))
 
     assert env.uploads == []
     assert env.execs == []
@@ -115,7 +122,7 @@ def test_a_src_that_is_not_a_git_work_tree_aborts(make_agent, tmp_path: Path) ->
     env = RecordingEnvironment()
 
     with pytest.raises(ValueError, match="not a git work tree"):
-        asyncio.run(make_agent(plugin=_plugin(src)).install(env))
+        asyncio.run(make_agent(**_plugin_options(src)).install(env))
 
     assert env.uploads == []
 
@@ -126,7 +133,9 @@ def test_a_plugin_without_a_name_aborts(make_agent, plugin_repo) -> None:
     env = RecordingEnvironment()
 
     with pytest.raises(ValueError, match="plugin.name"):
-        asyncio.run(make_agent(plugin={"src": str(repo)}).install(env))
+        asyncio.run(
+            make_agent(**{"plugin": {"src": str(repo)}, "run_flags": []}).install(env)
+        )
 
     assert env.uploads == []
 
@@ -136,7 +145,9 @@ def test_a_plugin_without_a_source_aborts(make_agent) -> None:
     env = RecordingEnvironment()
 
     with pytest.raises(ValueError, match="plugin.src"):
-        asyncio.run(make_agent(plugin={"name": "demo-plugin"}).install(env))
+        asyncio.run(
+            make_agent(**{"plugin": {"name": "demo-plugin"}, "run_flags": []}).install(env)
+        )
 
     assert env.uploads == []
 
@@ -166,7 +177,7 @@ def test_the_newest_commit_is_what_ships(make_agent, plugin_repo) -> None:
     second_sha = git(repo, "rev-parse", "HEAD")
     env = RecordingEnvironment()
 
-    asyncio.run(make_agent(plugin=_plugin(repo)).install(env))
+    asyncio.run(make_agent(**_plugin_options(repo)).install(env))
 
     with tarfile.open(fileobj=io.BytesIO(env.uploaded[PLUGIN_TAR.as_posix()])) as tar:
         shipped = tar.extractfile("index.ts").read()
@@ -183,7 +194,7 @@ def test_an_untracked_file_neither_blocks_nor_ships(make_agent, plugin_repo) -> 
     (repo / "notes.local.md").write_text("scratch\n", encoding="utf-8")
     env = RecordingEnvironment()
 
-    asyncio.run(make_agent(plugin=_plugin(repo)).install(env))
+    asyncio.run(make_agent(**_plugin_options(repo)).install(env))
 
     with tarfile.open(fileobj=io.BytesIO(env.uploaded[PLUGIN_TAR.as_posix()])) as tar:
         names = {member.name for member in tar.getmembers()}
