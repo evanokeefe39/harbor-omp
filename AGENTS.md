@@ -12,8 +12,8 @@ this repo exists to remove. `tests/test_isolation.py` enforces it.
 
 ## Ground rules
 
-- **uv only.** `uv sync`, `uv run pytest`, `uv run ruff check src tests`. Never
-  `pip install`; never a bare `python`.
+- **uv only.** `uv sync`, `uv run pytest`, `uv run ruff check src tests
+  scripts`. Never `pip install`; never a bare `python`.
 - **Never edit a consumer's repo.** `harbor-omp` is consumed by other repos; a
   change here is published, not patched in place.
 - **Test-first for behaviour.** A behavioural change lands with the test that
@@ -56,7 +56,7 @@ agent itself.
 ## Before opening a PR
 
 1. `uv run pytest -q` green.
-2. `uv run ruff check src tests` clean.
+2. `uv run ruff check src tests scripts` clean.
 3. Registers updated for the change.
 4. `README.md` known-gaps table still true (flipping a capability means editing
    both).

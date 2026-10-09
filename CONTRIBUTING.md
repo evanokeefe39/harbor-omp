@@ -11,7 +11,7 @@ git clone https://github.com/evanokeefe39/harbor-omp
 cd harbor-omp
 uv sync                       # creates .venv and installs harbor, pydantic, pytest, ruff
 uv run pytest -q
-uv run ruff check src tests
+uv run ruff check src tests scripts
 ```
 
 `uv` handles the virtualenv; do not create one by hand, and do not use `pip`.

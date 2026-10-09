@@ -58,13 +58,21 @@ rc=0
 <omp argv …> 2>&1 </dev/null | tee <logs>/omp.txt
 rc=${PIPESTATUS[0]}
 harbor_omp_agent_rc=$rc                # saved before the post-commands can touch anything
-<post-commands>                        # best-effort: loud on stderr, never changes the status
+(                                      # the post block is one subshell: `exit`,
+  <post-commands>                      # an EXIT trap or `set -e` inside it ends the
+)                                      # subshell and nothing else
+harbor_omp_hook_rc=$?                  # the block's own status, reported by the parent
+if [ "$harbor_omp_hook_rc" -ne 0 ]; then
+  echo "harbor-omp: post-command failed (rc=…); the agent exit code is unchanged" >&2
+fi
 exit $harbor_omp_agent_rc
 ```
 
 Why `set -uo pipefail` and not `-e`: the agent's status is captured from the
 pipeline and reported as the exec's status, so Harbor's error classifier sees
-omp's own failure instead of the last command in a chain.
+omp's own failure instead of the last command in a chain — and the same reason
+puts the post block in a subshell, so a post-command cannot end the script
+before its status is recorded or replace it at exit.
 
 ## The seam
 
@@ -73,7 +81,7 @@ Everything a consumer adds arrives as option data:
 - **files** — `extra_files`, uploaded during install as the agent user;
 - **commands** — `pre_commands` (a gate: non-zero aborts before the agent, and
   an `export` here reaches the agent process) and `post_commands` (collection:
-  best-effort by construction);
+  one contained subshell, best-effort by construction);
 - **config** — `seed` (config-dir-relative content) and `config_source` +
   `config_paths` (a host checkout shipped by committed HEAD).
 
@@ -93,8 +101,10 @@ shape is:
    post-run path and, once `environment.stream` is used, the live path
    (`remote_session_logs_dir` already points at the right directory);
 3. `capabilities.atif` flips to true and the README known-gaps row moves;
-4. per-model `model_usage` can then be backfilled by Harbor from the ATIF
-   trajectory, which is why the two belong in one change.
+4. per-model `model_usage` is **already** populated from the session
+   (`session.sum_session_usage` returns the per-model totals and the adapter
+   maps them onto `AgentContext.model_usage`), so the trajectory does not have
+   to supply it.
 
 Until then, tokens, cache and cost come from the session JSONL directly — the
 same numbers, without a trajectory artifact.
