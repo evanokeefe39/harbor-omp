@@ -391,3 +391,52 @@ def test_the_writer_writes_exactly_the_formatted_document(tmp_path: Path) -> Non
     assert path.read_text(encoding="utf-8") == trajectory.format_trajectory_json(
         built.to_json_dict()
     )
+
+
+def test_event_shapes_the_fixture_lacks_still_become_one_step_each(
+    tmp_path: Path,
+) -> None:
+    """The rule is every event, not the fixture's events: a tool dispatch, an
+    injected message and a type a later omp version invents each become exactly
+    one ``system`` step carrying their payload, so a new event shape changes how
+    readable the trajectory is and never how complete it is."""
+    logs_dir = tmp_path / "logs"
+    directory = logs_dir / "omp-sessions"
+    directory.mkdir(parents=True)
+    (directory / "session.jsonl").write_text(
+        '{"type":"custom","customType":"tool_execution_start","data":'
+        '{"toolCallId":"call_1|fc_1","toolName":"bash","intent":"check"},'
+        '"id":"c1","timestamp":"2026-10-09T12:00:00.000Z"}\n'
+        '{"type":"custom_message","customType":"mid-run-todo-nudge",'
+        '"content":"<system-reminder>2 todo items still open.</system-reminder>",'
+        '"display":false,"attribution":"agent","id":"c2",'
+        '"timestamp":"2026-10-09T12:00:01.000Z"}\n'
+        '{"type":"future_event","payload":{"anything":[1,2,3]},"id":"c3",'
+        '"timestamp":"2026-10-09T12:00:02.000Z"}\n',
+        encoding="utf-8",
+    )
+
+    built = _convert(logs_dir)
+
+    assert len(built.steps) == 3
+    assert [step.source for step in built.steps] == ["system", "system", "system"]
+
+    dispatch, injected, unknown = built.steps
+    assert dispatch.message == "custom: type='tool_execution_start', tool='bash', intent='check'"
+    assert dispatch.extra["omp_tool_call_id"] == "call_1|fc_1"
+    assert dispatch.extra["omp_tool_name"] == "bash"
+
+    assert injected.message == "<system-reminder>2 todo items still open.</system-reminder>"
+    assert injected.extra["omp_custom_type"] == "mid-run-todo-nudge"
+
+    # A type this converter has never seen: one step, its payload intact.
+    assert unknown.message == "future_event"
+    assert unknown.extra["omp_event"] == {
+        "type": "future_event",
+        "payload": {"anything": [1, 2, 3]},
+        "id": "c3",
+        "timestamp": "2026-10-09T12:00:02.000Z",
+    }
+
+    validator = TrajectoryValidator()
+    assert validator.validate(built.to_json_dict()), validator.get_errors()
