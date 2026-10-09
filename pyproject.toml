@@ -31,6 +31,7 @@ Issues = "https://github.com/evanokeefe39/harbor-omp/issues"
 
 [dependency-groups]
 dev = [
+  "import-linter>=2.15",
   "pytest>=8.3",
   "ruff>=0.9",
 ]
@@ -41,3 +42,31 @@ packages = ["src/harbor_omp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.importlinter]
+root_package = "harbor_omp"
+include_external_packages = true
+
+# The hard rule of this repo (`tests/test_isolation.py` also asserts it): the
+# package depends on Harbor's public API and on nothing else. A module added to
+# `session.py` — the standalone reader that must load with `harbor` and
+# `pydantic` absent — cannot quietly grow a Harbor import. The test suite
+# proves the same rule for the whole package; this states it as contracts so a
+# boundary a new file would cross fails lint-imports before review.
+[[tool.importlinter.contracts]]
+name = "harbor_omp.session is standalone — no Harbor, no pydantic"
+type = "forbidden"
+source_modules = ["harbor_omp.session"]
+forbidden_modules = ["harbor", "pydantic"]
+
+[[tool.importlinter.contracts]]
+name = "harbor_omp.hooks and harbor_omp.install need no harness"
+type = "forbidden"
+source_modules = ["harbor_omp.hooks", "harbor_omp.install"]
+forbidden_modules = ["harbor", "pydantic"]
+
+[[tool.importlinter.contracts]]
+name = "the package names nothing outside its declared dependencies"
+type = "forbidden"
+source_modules = ["harbor_omp"]
+forbidden_modules = ["evals"]

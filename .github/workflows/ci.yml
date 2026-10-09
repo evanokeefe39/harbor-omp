@@ -17,6 +17,8 @@ jobs:
         run: uv sync --locked
       - name: Lint
         run: uv run ruff check src tests scripts
+      - name: Import boundaries
+        run: uv run lint-imports
       - name: Test
         run: uv run pytest -q
       - name: Import from an installed distribution
