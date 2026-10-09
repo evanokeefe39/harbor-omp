@@ -75,8 +75,9 @@ This is the evidence that Harbor's environment class, the `/logs/agent` mount
 and the upload path work with this agent. It also leaves one caveat that the
 spec's `[NEEDS CLARIFICATION]` items do **not** fully retire: a standalone run
 has no `profile_mismatches` signal, and a later 30-task run surfaced silent
-no-op trials (`docs/worked-example.md` § 3) that must be excluded before any
-pass/fail rate is trusted.
+no-op trials — **22 of 30** (`docs/worked-example.md` § 3) — that must be
+excluded before any pass/fail rate is trusted. The run itself was clean:
+30/30 trials in 46 m 13 s at four-in-flight, $0.43, 2 passed.
 
 ## 4. harness-evals cutover — open, unblocked
 

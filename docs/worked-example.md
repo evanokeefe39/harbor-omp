@@ -125,8 +125,15 @@ Pool arithmetic: `4 × 2 GiB = 8 GiB` fits with 2 GiB to spare;
   sandbox count climbed to four as each trial finished building its environment
   image (the image build precedes sandbox creation, so they stagger by build
   time — not by a serial scheduler).
-- Trials rolled: 11 completed in the first ~28 minutes at four-in-flight
-  (~2.5 min per trial of wall time).
+- **The run completed**: 30/30 trials in **46 m 13 s**, mean reward **0.07**,
+  total cost **$0.43** (1 errored trial). Trials rolled — 11 finished in the
+  first ~28 minutes at four-in-flight (~2.5 min per trial of wall time).
+
+  ![harbor view showing the completed 30-task benchmark](images/harbor-view-fast30.png)
+
+  The page reads: job `harboromp-fast30-4x2g`, source `cohort-retention-matrix
+  +29 more`, agent `harbor_omp:OmpAgent`, result `0.07`, `46m 13s`,
+  `30/30 (1 error)`, `$0.43`.
 
 > **Foot-gun #2 — `--print-config` hides defaults.** `harbor run … --print-config`
 > dumps with `exclude_defaults=True`, so a field set to its default value is
@@ -143,9 +150,11 @@ Pool arithmetic: `4 × 2 GiB = 8 GiB` fits with 2 GiB to spare;
 
 ### ⚠️ Observed defect — silent no-op trials
 
-A significant fraction of the benchmark trials **completed with a near-zero cost
-and reward 0 because the agent never did the work**. The cause is not a failing
-task; it is the agent answering an idle greeting and exiting.
+**22 of the 30 trials — 73% — completed with a near-zero cost and reward 0
+because the agent never did the work.** Only **2 passed**
+(`dbt-customer-churn-cohorts`, 42 steps; `dbt-fix-division-by-zero`, 19 steps);
+the other 6 ran and genuinely failed. The cause of the 22 is not a failing task;
+it is the agent answering an idle greeting and exiting.
 
 The `agent/omp.txt` for such a trial is ~50 bytes:
 
@@ -216,4 +225,4 @@ harbor run -c my.config.json --print-config      # remember: defaults are hidden
 | Does `override_memory_mb` shrink the sandbox? | **Yes** — 3000/2048 both produced a 2 GiB sandbox (GiB flooring) |
 | Does top-level `n_concurrent_trials` parallelise? | **Yes** — four trials and four sandboxes in flight |
 | What is the practical ceiling? | **5 × 2 GiB = 10 GiB** — the org cap; 4 × 2 GiB is safe |
-| Is the pass/fail rate trustworthy yet? | **No** — silent no-op trials (see above) must be excluded first |
+| Is the pass/fail rate trustworthy yet? | **No** — 22 of 30 trials never ran. The honest reading is **2 passed / 6 ran and failed / 22 no-opped** |
