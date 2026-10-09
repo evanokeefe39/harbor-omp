@@ -1,6 +1,6 @@
-"""The adapter's extension points: extra files, pre-commands, post-commands.
+"""The agent's extension points: extra files, pre-commands, post-commands.
 
-The adapter knows how to install omp, keep it away from ambient config, run it,
+The agent knows how to install omp, keep it away from ambient config, run it,
 and read its session metrics. It knows nothing about a benchmark, a profile, an
 evidence collector, or a scan list. Everything a consumer adds arrives through
 the three hooks below — the fields live on ``OmpOptions`` (``extra_files``,
@@ -28,8 +28,8 @@ the three hooks below — the fields live on ``OmpOptions`` (``extra_files``,
 
 ``post_commands`` — best-effort collection
     Shell commands run as the agent user after omp exits and before the run
-    exits. A post-command can never change the agent's exit code: the adapter
-    keeps the agent's status, reports a non-zero post-command on stderr, and
+    exits. A post-command can never change the agent's exit code: the agent
+    keeps its status, reports a non-zero post-command on stderr, and
     exits with the agent's status. Evidence collection must not turn a passing
     trial red, and must not hide a failing one behind its own failure.
 
@@ -40,11 +40,11 @@ the three hooks below — the fields live on ``OmpOptions`` (``extra_files``,
     directory, shell options, traps — does not outlive the block; files it
     writes do, which is what collection needs.
 
-The commands are the caller's shell text. The adapter runs them in one script
-with the agent, so the caller's lines share its working directory (``/app``)
+The commands are the caller's shell text. The agent runs them in one script
+with the agent process, so the caller's lines share its working directory (``/app``)
 and its isolated ``HOME`` / ``PI_CONFIG_DIR``; the home the agent started from
 is available as ``$ORIG_HOME`` (that is where bun and omp are installed). The
-adapter's own variables are ``rc``, ``harbor_omp_agent_rc`` and
+agent's own variables are ``rc``, ``harbor_omp_agent_rc`` and
 ``harbor_omp_hook_rc`` — a hook that reuses those names changes its own result,
 not the agent's exit code.
 """

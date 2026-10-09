@@ -22,7 +22,7 @@ MODEL = "openrouter/deepseek/deepseek-v4-flash"
 
 
 def _posix_shell() -> str:
-    """A shell that can run the adapter's run script.
+    """A shell that can run the agent's run script.
 
     On Windows the PATH ``bash`` is usually WSL's, which cannot see the Windows
     temp paths a test uses; Git Bash can, and is where it normally lives.
@@ -53,7 +53,7 @@ def _hook_agent(logs_dir: Path, **options: object) -> OmpAgent:
 def run_script(
     agent: OmpAgent, instruction: str = "do the task", omp_body: str = "return 0"
 ) -> subprocess.CompletedProcess[str]:
-    """Run the adapter's real run script with the agent CLI stubbed out."""
+    """Run the agent's real run script with the agent CLI stubbed out."""
 
     argv, _ = agent._run_argv(instruction)
     # The stub body goes on its own line: bash needs a terminator before `}`.
@@ -114,7 +114,7 @@ def test_a_failing_post_command_never_changes_the_agents_status(tmp_path: Path) 
 
 
 def test_a_post_command_cannot_steal_the_exit_code(tmp_path: Path) -> None:
-    """Even a post-command that writes the adapter's own variable names cannot
+    """Even a post-command that writes the agent's own variable names cannot
     change the status the run reports."""
     agent = _hook_agent(tmp_path, post_commands=["rc=7"])
 
@@ -202,7 +202,7 @@ def test_the_workspace_is_the_shared_working_directory(tmp_path: Path) -> None:
 @pytest.mark.parametrize("where", ["pre", "post"])
 def test_commands_that_touch_the_session_dir_are_not_swallowed(tmp_path: Path, where: str) -> None:
     """A hook's own output is visible: the failure lines are the only thing the
-    adapter adds."""
+    agent adds."""
     agent = _hook_agent(tmp_path, **{f"{where}_commands": ['echo "HOOK-OUTPUT"']})
 
     result = run_script(agent)

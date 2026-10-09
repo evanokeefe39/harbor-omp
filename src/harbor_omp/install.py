@@ -19,7 +19,7 @@ from pathlib import PurePosixPath
 #: Harbor's agent log dir inside the container, mounted back to the host.
 AGENT_LOG_DIR = PurePosixPath("/logs/agent")
 
-#: Where the adapter's provenance records land inside the container.
+#: Where the agent's provenance records land inside the container.
 RESOLVED_DIR = AGENT_LOG_DIR / "resolved"
 
 #: System packages the install and the git-based shipping steps need.

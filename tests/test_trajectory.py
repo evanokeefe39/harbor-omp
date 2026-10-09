@@ -230,7 +230,14 @@ def test_the_fixture_converts_into_a_trajectory_harbors_validator_accepts(
     assert validator.get_errors() == []
 
     serialised = trajectory.format_trajectory_json(built.to_json_dict())
-    assert validate_trajectory(serialised) is True
+    # On disk is a path, not a string: Harbor's validator coerces a ``str`` to
+    # ``Path`` and calls ``exists()`` before parsing, so a multi-KB JSON string
+    # raises ``OSError: File name too long`` on Linux (a bare ``False`` on
+    # Windows, which is why this passed here and failed in CI). Write the
+    # document where a consumer reads it and validate that.
+    document = tmp_path / "trajectory.json"
+    document.write_text(serialised, encoding="utf-8")
+    assert validate_trajectory(document) is True
     assert built.schema_version == "ATIF-v1.8"
 
 

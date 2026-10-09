@@ -5,7 +5,7 @@ is that a contributor can make a correct change without re-deriving the rules.
 
 ## What this repo is
 
-A standalone Harbor agent adapter for the `omp` CLI. It depends on Harbor's
+A standalone Harbor agent for the `omp` CLI. It depends on Harbor's
 public API and on nothing else. **If a change would make the package import
 anything from a private eval harness, it is wrong** — that coupling is the thing
 this repo exists to remove. `tests/test_isolation.py` enforces it.
@@ -48,7 +48,7 @@ Never rewrite an existing row to make history look better; append.
 
 ## The container contract
 
-The adapter writes only under `/tmp` and the environment log dir
+The agent writes only under `/tmp` and the environment log dir
 (`/logs/agent`). If a change needs a write anywhere else in the task container,
 say why in the commit body — the trial workspace must be touched only by the
 agent itself.

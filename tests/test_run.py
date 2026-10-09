@@ -1,6 +1,6 @@
 """The run: argv shape, the recorded identity, install-only, and the exit path.
 
-Everything here is observed through the environment the adapter drives: the
+Everything here is observed through the environment the agent drives: the
 record it uploads, the command it runs, and the script it hands to the agent
 user.
 """
@@ -198,7 +198,7 @@ def test_the_install_creates_the_dirs_the_run_writes_to(make_agent) -> None:
 
 
 def test_a_prompt_template_is_applied_to_the_instruction(make_agent, tmp_path: Path) -> None:
-    """Harbor's declared prompt-template option is not inert for this adapter:
+    """Harbor's declared prompt-template option is not inert for this agent:
     the rendered instruction is what the argv carries."""
     template = tmp_path / "prompt.j2"
     template.write_text("wrapped: {{ instruction }}", encoding="utf-8")

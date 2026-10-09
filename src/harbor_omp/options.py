@@ -1,6 +1,6 @@
-"""The adapter's option surface (Harbor's ``AgentConfig.kwargs``).
+"""The agent's option surface (Harbor's ``AgentConfig.kwargs``).
 
-Everything the adapter needs to know arrives here as data. Nothing in this
+Everything the agent needs to know arrives here as data. Nothing in this
 package reads a benchmark, a profile, or a harness module: a caller that wants
 a pinned omp, shipped config content, a plugin, or its own commands says so
 with these fields.
@@ -60,7 +60,7 @@ def package_spec(version: str) -> str:
 
 
 class OmpOptions(InstalledAgentOptions):
-    """Everything the adapter is told, and nothing it assumes."""
+    """Everything the agent is told, and nothing it assumes."""
 
     @field_validator("version", mode="before")
     @classmethod
@@ -191,7 +191,7 @@ class OmpOptions(InstalledAgentOptions):
         description=(
             "Config-dir-relative path -> file content, written into the isolated "
             "config home (<config_home>/.omp/<path>) before the agent runs. "
-            "Plain data: the adapter neither reads nor renders it. Absolute "
+            "Plain data: the agent neither reads nor renders it. Absolute "
             "paths and '..' segments are refused."
         ),
     )
@@ -199,7 +199,7 @@ class OmpOptions(InstalledAgentOptions):
         default="/tmp/omp-home",
         description=(
             "The HOME the agent runs under, and the root of the isolated config "
-            "dir (<config_home>/.omp, with PI_CONFIG_DIR=.omp). The adapter "
+            "dir (<config_home>/.omp, with PI_CONFIG_DIR=.omp). The agent "
             "resets it on every install, so point it at a path this trial owns."
         ),
     )

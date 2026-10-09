@@ -1,7 +1,7 @@
 """Shipping a plugin from a host checkout into the trial container.
 
 A plugin source is a HOST path to a git checkout (private repos cannot be
-installed by URL, and the sandbox has no host mounts). The adapter must ship
+installed by URL, and the sandbox has no host mounts). The agent must ship
 the committed HEAD — verify clean, ``git archive``, upload, extract as the agent
 user — and the config-home step installs and configures it from the container
 path, so no host path ever reaches the container command.
