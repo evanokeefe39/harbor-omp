@@ -1,0 +1,12 @@
+# One config per project: this file makes ruff ignore any [tool.ruff] table.
+# E/W = PEP 8 errors/warnings, F = pyflakes, I = import order, B = bugbear.
+# Ruff has no warning level: every selected rule fails `ruff check`.
+line-length = 100
+
+[lint]
+select = ["E", "W", "F", "I", "B"]
+
+[lint.per-file-ignores]
+# Tests build long shell scripts inside strings; wrapping at 100 columns would
+# obscure the script they assert on.
+"tests/*.py" = ["E501"]
