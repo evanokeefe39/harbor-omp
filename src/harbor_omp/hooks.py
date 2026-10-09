@@ -35,9 +35,11 @@ the three hooks below — the fields live on ``OmpOptions`` (``extra_files``,
 
 The commands are the caller's shell text. The adapter runs them in one script
 with the agent, so the caller's lines share its working directory (``/app``)
-and its isolated ``HOME`` / ``PI_CONFIG_DIR``. The adapter's own variables are
-``rc``, ``harbor_omp_agent_rc`` and ``harbor_omp_hook_rc`` — a hook that
-reuses those names changes its own result, not the agent's exit code.
+and its isolated ``HOME`` / ``PI_CONFIG_DIR``; the home the agent started from
+is available as ``$ORIG_HOME`` (that is where bun and omp are installed). The
+adapter's own variables are ``rc``, ``harbor_omp_agent_rc`` and
+``harbor_omp_hook_rc`` — a hook that reuses those names changes its own result,
+not the agent's exit code.
 """
 
 from __future__ import annotations

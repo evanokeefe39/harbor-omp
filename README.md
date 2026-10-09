@@ -60,7 +60,7 @@ harbor run --path <dataset> --task <task> \
 | `version` | `@oh-my-pi/pi-coding-agent@18.6.0` | The npm spec the install installs (honoured, not advisory). A bare `18.6.1` is read as a version of the omp package. |
 | `thinking` | unset | Passed to omp as `--thinking=<value>`. Also accepts `reasoning_effort` as a name. |
 | `run_flags` | S2 recipe | The omp flags the run passes, verbatim. Unset means `--no-extensions --no-skills --no-rules --no-lsp`; `[]` runs omp with its own defaults. |
-| `install_only` | `false` | Record the argv, run no agent, spend nothing. The zero-spend install gate. |
+| `install_only` | `false` | Record the argv, run no agent and no hook command, spend nothing. The zero-spend install gate. |
 | `config_source` + `config_paths` | unset | A host git checkout whose committed HEAD ships into the config dir: paths are checkout-relative archive pathspecs. Both must be given; a source that is not a clean checkout aborts before any upload. |
 | `plugin` | unset | `{"name", "src", "settings"}`: a host git checkout of an omp plugin, installed in-container with `omp install`, enabled, and configured via `omp plugin config set`. |
 | `seed` | unset | Config-dir-relative path → file content, written into the isolated config dir before the agent runs. Plain data; the adapter neither reads nor renders it. |
