@@ -23,29 +23,46 @@ Two boundaries are deliberate:
 
 ## Lifecycle
 
-```
-Harbor                 OmpAgent                          container
-------                 --------                          ---------
-setup() ─────────────▶ install()
-                       ├─ archive plugin checkout HEAD ─▶ /tmp/harbor-omp-plugin.tar
-                       │                                  /tmp/harbor-omp-plugin/       (agent user)
-                       ├─ archive config checkout HEAD ─▶ /tmp/harbor-omp-config.tar
-                       │                                  /logs/agent/resolved/config-source.json
-                       ├─ ensure_system_dependencies
-                       ├─ bun + bun install -g omp ─────▶ omp --version
-                       ├─ extra_files uploads ──────────▶ caller's targets
-                       └─ reset config home ────────────▶ $HOME/.omp  (seed, plugin install/enable/config)
-                                          (config tar extracted into $HOME/.omp after the reset)
-       version probe ◀── get_version_command() ──────────▶ omp --version
-run()  ─────────────▶ run()
-                       ├─ run-flags.json record ────────▶ /logs/agent/resolved/run-flags.json
-                       ├─ install_only? ────────────────▶ (stop; no agent, no hooks)
-                       └─ run script ───────────────────▶ pre-commands
-                                                          omp … | tee /logs/agent/omp.txt
-                                                          post-commands
-   sync logs ◀──────── logs_dir/<session_dir_name>/ ◀───── /logs/agent/omp-sessions/
-       metrics ◀────── populate_context_post_run()  ─────▶ (read from logs_dir)
-    trajectory ◀────── convert_trajectory() ────────────▶ logs_dir/trajectory.json   (ATIF)
+```mermaid
+sequenceDiagram
+    autonumber off
+    participant H as Harbor
+    participant A as OmpAgent
+    participant C as container
+
+    H->>A: setup()
+    activate A
+    A->>C: archive plugin checkout HEAD
+    Note right of C: /tmp/harbor-omp-plugin.tar<br>/tmp/harbor-omp-plugin/ (agent user)
+    A->>C: archive config checkout HEAD
+    Note right of C: /tmp/harbor-omp-config.tar<br>/logs/agent/resolved/config-source.json
+    A->>C: ensure_system_dependencies
+    A->>C: bun + bun install -g omp
+    C-->>A: omp --version
+    A->>C: extra_files uploads
+    Note right of C: caller's targets
+    A->>C: reset config home
+    Note right of C: $HOME/.omp — seed, plugin install/enable/config<br>(config tar extracted after the reset)
+    C-->>H: version probe (get_version_command)
+    deactivate A
+
+    H->>A: run()
+    activate A
+    A->>C: run-flags.json record
+    Note right of C: /logs/agent/resolved/run-flags.json
+    alt install_only
+        A->>C: (stop, no agent, no hooks)
+    else
+        A->>C: pre-commands
+        A->>C: omp … (piped through tee to /logs/agent/omp.txt)
+        A->>C: post-commands
+        Note right of C: /logs/agent/omp-sessions/ — written by omp, read back below
+    end
+    C-->>A: sync logs (logs_dir/<session_dir_name>/)
+    A->>A: populate_context_post_run() → metrics
+    A->>C: convert_trajectory()
+    Note right of C: logs_dir/trajectory.json (ATIF)
+    deactivate A
 ```
 
 A streaming job adds one loop: while the agent runs, Harbor's `sync_trajectory`
