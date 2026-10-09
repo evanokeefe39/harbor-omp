@@ -55,6 +55,12 @@ tars the session dir every ~2 s into a temporary logs dir and calls
 populated before the run ends. The post-run call above then rewrites it complete
 from the session on disk.
 
+What that loop does not give you: the metrics still arrive only after the run
+(`AgentContext` is filled once, when the agent has exited), the live file is
+written by Harbor's own writer and so is not put through the validator, and a
+poll whose session is mid-write is refused by the accounting — the file updates
+on the next poll rather than ever holding a partial session.
+
 The run script is one shell, in this order:
 
 ```bash
