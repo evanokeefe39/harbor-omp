@@ -24,7 +24,7 @@ def test_the_agent_identity_is_the_short_product_name() -> None:
     assert OmpAgent.name() == "omp"
 
 
-def test_the_adapter_is_an_installed_agent() -> None:
+def test_the_agent_is_an_installed_agent() -> None:
     """omp runs inside the task environment; Harbor's installed-agent machinery
     (setup, version detection, error classification) is what wraps it."""
     assert issubclass(OmpAgent, BaseInstalledAgent)
@@ -86,7 +86,7 @@ def test_skills_and_mcp_are_not_claimed(make_agent) -> None:
 
 def test_the_option_model_is_the_declared_one() -> None:
     """Harbor compiles ``--agent-kwarg`` through this model; if it stopped being
-    the adapter's model, every documented option would become a silent no-op."""
+    the agent's model, every documented option would become a silent no-op."""
     assert OmpAgent.options_model is not None
     assert OmpAgent.options_model.__name__ == "OmpOptions"
 

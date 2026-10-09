@@ -165,7 +165,7 @@ def convert_trajectory(
 ) -> Trajectory | None:
     """Build the ATIF trajectory of the omp session under ``logs_dir``.
 
-    Pre: ``session_dir_name`` is the adapter's session-dir option, and
+    Pre: ``session_dir_name`` is the agent's session-dir option, and
     ``agent_name`` / ``agent_version`` / ``model_name`` are the agent's identity
     — ``model_name`` is only the default for a step whose event names no model.
     Post: one step per non-blank session line, in file order, each carrying its
@@ -265,7 +265,7 @@ def _session_facts(
 
     The root model is the one the assistant messages carry when the session names
     one — those are the records the totals are attributed to — falling back to
-    the ``model_change`` the run started with, and then to the model the adapter
+    the ``model_change`` the run started with, and then to the model the agent
     ran with. It is only a default: an agent step that names its own model keeps
     it.
     """

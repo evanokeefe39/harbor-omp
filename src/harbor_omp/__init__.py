@@ -1,4 +1,4 @@
-"""Harbor agent adapter for omp (oh-my-pi).
+"""Harbor agent for omp (oh-my-pi).
 
 Harbor resolves an agent by name or by import path; this package has no agent
 entry point, so the documented invocation is::

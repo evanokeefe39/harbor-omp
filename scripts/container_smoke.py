@@ -1,6 +1,6 @@
 """Exercise the container-side recipes in a real Linux container.
 
-The unit tests assert the commands the adapter hands to an environment; this
+The unit tests assert the commands the agent hands to an environment; this
 script runs those same commands on a real filesystem, with the real bun and the
 real omp install, and checks the results it can only get there:
 
@@ -34,7 +34,7 @@ from harbor_omp.install import install_command
 MODEL = "openrouter/deepseek/deepseek-v4-flash"
 SEED = {"omp.json": '{"model": "smoke"}\n', "agent/config.yml": "task: {}\n"}
 
-#: The two agent stubs: the run script sources one of these before the adapter's
+#: The two agent stubs: the run script sources one of these before the agent's
 #: script, so no model is called and the argv it received is visible.
 STUB_OK = (
     'omp() { echo "AGENT-STUB probe=${HOOK_PROBE-unset} argv=$*";\n'
@@ -52,7 +52,7 @@ echo "== install =="
 bash /work/install.sh; echo "install rc=$?"
 export PATH="$HOME/.bun/bin:$PATH"
 command -v omp; omp --version
-echo "== stage the seed the way the adapter's upload would =="
+echo "== stage the seed the way the agent's upload would =="
 mkdir -p /tmp/harbor-omp-seed/agent
 printf '{"model": "smoke"}\n' > /tmp/harbor-omp-seed/omp.json
 printf 'task: {}\n' > /tmp/harbor-omp-seed/agent/config.yml
@@ -101,7 +101,7 @@ def _agent(**options: object) -> OmpAgent:
 
 
 def _write_scripts(work: Path) -> None:
-    """Write each adapter-generated command as the standalone script it is."""
+    """Write each agent-generated command as the standalone script it is."""
 
     seeded = _agent(
         seed=SEED,

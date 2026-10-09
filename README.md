@@ -1,6 +1,6 @@
 # harbor-omp
 
-A [Harbor](https://docs.harborframework.com) agent adapter for
+A [Harbor](https://docs.harborframework.com) agent for
 **omp** — the coding-agent CLI shipped by the npm package
 `@oh-my-pi/pi-coding-agent`. It installs a pinned omp with bun inside the trial container, runs it
 under an isolated config home, records the argv it ran, and turns the omp
@@ -9,9 +9,9 @@ ATIF trajectory Harbor's viewer, `atif2otel` and the observability plugins read.
 
 ## Why this exists
 
-Harbor ships adapters for `claude-code`, `codex`, `pi`, `opencode` and others,
+Harbor ships agents for `claude-code`, `codex`, `pi`, `opencode` and others,
 but none for omp — the agent CLI this package exists to run. This package was
-extracted from a private evaluation harness so the adapter could be reused
+extracted from a private evaluation harness so the agent could be reused
 instead of vendored: it depends on Harbor's public API only, and on nothing from
 the harness it came from (see `docs/architecture.md`).
 
@@ -70,12 +70,12 @@ harbor run --path <dataset> --include-task-name <task> \
 | `install_only` | `false` | Record the argv, run no agent and no hook command, spend nothing. The zero-spend install gate. |
 | `config_source` + `config_paths` | unset | A host git checkout whose committed HEAD ships into the config dir: paths are checkout-relative archive pathspecs. Both must be given; the shipped paths must have no uncommitted changes to tracked files, or the trial aborts before any upload (a dirty file elsewhere in the checkout does not abort — it does not ship). |
 | `plugin` | unset | `{"name", "src", "settings"}`: a host git checkout of an omp plugin, installed in-container with `omp install`, enabled, and configured via `omp plugin config set`. Needs explicit `run_flags`. |
-| `seed` | unset | Config-dir-relative path → file content, written into the isolated config dir before the agent runs. Plain data; the adapter neither reads nor renders it. |
+| `seed` | unset | Config-dir-relative path → file content, written into the isolated config dir before the agent runs. Plain data; the agent neither reads nor renders it. |
 | `config_home` | `/tmp/omp-home` | The HOME the agent runs under. `<config_home>/.omp` is the config dir (`PI_CONFIG_DIR=.omp`). Reset on every install. |
 | `session_dir_name` | `omp-sessions` | Session directory under the environment log dir; `--session-dir` points at it and the post-run metrics are read from it. |
 | `extra_files`, `pre_commands`, `post_commands` | unset | The extension points — see below. |
 
-## What the adapter does
+## What the agent does
 
 1. **Ships the pins.** A plugin source and a config checkout are verified clean
    and archived from their committed HEAD *before* anything is uploaded: a pin
@@ -145,13 +145,13 @@ Other deliberate limits:
   (`-p`), so the output Harbor's classifier scans on a failed run is the
   agent's own prose, matched against Harbor's 34 error regexes.
   `filter_jsonl_events` cannot narrow that to harness-emitted events the way a
-  JSONL-speaking adapter does, because there is no JSONL stream at exec time.
+  JSONL-speaking agent does, because there is no JSONL stream at exec time.
   A failed trial is still classified (and its status is omp's own), but treat
   the error type as a hint rather than as a structured field.
 - **No per-exec timeout.** A hung omp runs to Harbor's task timeout rather than
   a per-execution bound.
 - **The instruction is passed as a positional argv element**, quoted by the
-  adapter — there is no stdin/env prompt channel.
+  agent — there is no stdin/env prompt channel.
 - **File modes are not preserved** by `extra_files`; a `pre_command` that needs
   an executable does its own `chmod`.
 - **The config home is wiped on every install.** Pass a `config_home` this trial

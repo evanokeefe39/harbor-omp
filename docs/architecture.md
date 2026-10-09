@@ -4,7 +4,7 @@
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `harbor_omp/omp_agent.py` | The Harbor adapter: `OmpAgent`, shipping, config-home steps, the run script, post-run metrics. | Harbor, pydantic, the rest of the package |
+| `harbor_omp/omp_agent.py` | The Harbor agent: `OmpAgent`, shipping, config-home steps, the run script, post-run metrics. | Harbor, pydantic, the rest of the package |
 | `harbor_omp/options.py` | The option model and the npm-spec normalisation. | pydantic, Harbor's options base |
 | `harbor_omp/install.py` | bun and omp installation, the version probe, container paths. | stdlib |
 | `harbor_omp/session.py` | The session JSONL reader: usage, cost, steps. | **stdlib only** |

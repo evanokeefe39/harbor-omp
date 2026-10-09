@@ -96,9 +96,9 @@ def reported_cost(cost_usd: float) -> float | None:
     """A summed cost as Harbor reports it: ``None`` when omp reported none.
 
     A zero cost is omp saying "not reported", not a free run, so it must not be
-    published as a confident ``0.0``. Both the adapter's ``AgentContext`` and
+    published as a confident ``0.0``. Both the agent's ``AgentContext`` and
     the trajectory's totals go through this one rule, at the precision the
-    adapter has always published.
+    agent has always published.
     """
 
     return round(cost_usd, 6) if cost_usd > 0 else None

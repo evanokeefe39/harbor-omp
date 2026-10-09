@@ -1,4 +1,4 @@
-"""The omp Harbor agent adapter.
+"""The omp Harbor agent.
 
 ``OmpAgent`` installs the pinned omp CLI with bun and runs one trial with it::
 
@@ -6,9 +6,9 @@
         --model=<provider/model> [--thinking=<level>] <instruction>
 
 The agent runs as the environment's agent user under an isolated config home
-(``HOME=<config_home> PI_CONFIG_DIR=.omp``). The adapter resets that home on
+(``HOME=<config_home> PI_CONFIG_DIR=.omp``). The agent resets that home on
 every install and fills it from ``seed``, from a shipped config checkout, and
-from the plugin it installs — so what a trial ran with is what the adapter put
+from the plugin it installs — so what a trial ran with is what the agent put
 there, never what the image happened to carry.
 
 What the run leaves behind: the exact argv in
@@ -56,7 +56,7 @@ from harbor_omp import hooks, install, session, trajectory
 from harbor_omp.options import MINIMAL_EXTENSIONS_FLAGS, OmpOptions, package_spec
 
 # ---------------------------------------------------------------------------
-# Container paths. Everything the adapter writes lives under /tmp or under the
+# Container paths. Everything the agent writes lives under /tmp or under the
 # environment log dir, so a trial never touches the task workspace except
 # through the agent itself.
 # ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ CONFIG_TAR: Final[PurePosixPath] = PurePosixPath("/tmp/harbor-omp-config.tar")
 #: never wipes them before they are copied in).
 SEED_DIR: Final[PurePosixPath] = PurePosixPath("/tmp/harbor-omp-seed")
 
-#: The argv the adapter ran, recorded before omp launches.
+#: The argv the agent ran, recorded before omp launches.
 RUN_FLAGS_RECORD: Final[PurePosixPath] = install.RESOLVED_DIR / "run-flags.json"
 #: Which plugin source (commit, host path) the trial installed.
 PLUGIN_SOURCE_RECORD: Final[PurePosixPath] = install.RESOLVED_DIR / "plugin-source.json"
@@ -226,7 +226,7 @@ class OmpAgent(BaseInstalledAgent):
     the install command installs, recorded with the argv in ``run-flags.json``.
     """
 
-    # ATIF is the one capability this adapter implements; every other flag stays
+    # ATIF is the one capability this agent implements; every other flag stays
     # false because Harbor gates on it, and a flag turned on without the
     # behaviour behind it is a silent gap. ``atif`` is true because
     # ``convert_trajectory`` builds a validated trajectory and
@@ -243,7 +243,7 @@ class OmpAgent(BaseInstalledAgent):
         super().__init__(*args, **kwargs)
         # Harbor reads ``options.version`` as the *reported* agent version too,
         # which would stop ``setup()`` from probing the CLI that actually
-        # landed. The option is this adapter's install pin; the report is the
+        # landed. The option is this agent's install pin; the report is the
         # measured ``omp --version`` output, so the pin is never claimed as a
         # verified version.
         self._version = None
@@ -562,7 +562,7 @@ class OmpAgent(BaseInstalledAgent):
             f"2>&1 </dev/null | tee {shlex.quote(output_path.as_posix())}",
             "rc=${PIPESTATUS[0]}",
             # Saved before the post-commands run, so nothing they do — not even
-            # reusing the adapter's variable names — can change this status.
+            # reusing the agent's variable names — can change this status.
             "harbor_omp_agent_rc=$rc",
             # The post block is one subshell (hooks.post_command_lines), so an
             # exit, an EXIT trap or `set -e` inside it stays inside it.

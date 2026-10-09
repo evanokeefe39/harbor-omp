@@ -38,7 +38,7 @@ uv run pytest tests/test_run.py -q     # one module
 uv run pytest -k hooks -q              # by keyword
 ```
 
-The hook tests execute the adapter's real run script with a POSIX shell and a
+The hook tests execute the agent's real run script with a POSIX shell and a
 stubbed `omp`; on Windows they use Git Bash when it is installed. Tests must not
 require Docker, a network, or a model key.
 
