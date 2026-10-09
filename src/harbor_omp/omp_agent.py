@@ -22,11 +22,15 @@ extension points in ``harbor_omp.hooks`` are how a consumer adds files and
 commands; everything profile-shaped (benchmark names, scan lists, evidence
 collectors, toolchain probes) arrives through them.
 
-Known gaps, stated rather than implied: no ATIF trajectory (``capabilities.atif``
-is false and ``convert_trajectory`` is not overridden), no live streaming, no
-resume/load/handoff, no skills or MCP seam, and no per-exec timeout. The ATIF
-seam is ``BaseInstalledAgent.convert_trajectory`` reading through
-``harbor_omp.session``; see the README and ``docs/architecture.md``.
+What a run leaves behind besides that: the ATIF trajectory at
+``<logs>/trajectory.json``, written after the run by
+``populate_context_post_run`` and, in a streaming job, kept current while the
+run is going by Harbor's ``sync_trajectory`` polling ``convert_trajectory``.
+Both paths build it with ``harbor_omp.trajectory`` — one converter, one session
+reader — and the trajectory's totals are the same numbers the context reports.
+
+Known gaps, stated rather than implied: no resume/load/handoff, no skills or MCP
+seam, and no per-exec timeout. See the README and ``docs/architecture.md``.
 """
 
 from __future__ import annotations
@@ -44,9 +48,11 @@ from harbor.agents.capabilities import AgentCapabilities
 from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
 from harbor.agents.model_connection import ModelConnectionSpec
 from harbor.environments.base import BaseEnvironment
-from harbor.models.agent.context import AgentContext, ModelUsage
+from harbor.models.agent.context import AgentContext
+from harbor.models.trajectories import Trajectory
+from pydantic import ValidationError
 
-from harbor_omp import hooks, install, session
+from harbor_omp import hooks, install, session, trajectory
 from harbor_omp.options import MINIMAL_EXTENSIONS_FLAGS, OmpOptions, package_spec
 
 # ---------------------------------------------------------------------------
@@ -103,9 +109,7 @@ def archive_git_head(
         )
 
     def _git(*args: str, text: bool = True) -> subprocess.CompletedProcess[Any]:
-        return subprocess.run(
-            ["git", "-C", str(src), *args], capture_output=True, text=text
-        )
+        return subprocess.run(["git", "-C", str(src), *args], capture_output=True, text=text)
 
     probe = _git("rev-parse", "--is-inside-work-tree")
     if probe.returncode != 0 or probe.stdout.strip() != "true":
@@ -118,8 +122,7 @@ def archive_git_head(
     dirty = _git(*status_args)
     if dirty.returncode != 0:
         raise _abort(
-            f"git status failed in {what} source {src}: "
-            f"{(dirty.stderr or dirty.stdout).strip()}"
+            f"git status failed in {what} source {src}: {(dirty.stderr or dirty.stdout).strip()}"
         )
     if dirty.stdout.strip():
         raise _abort(
@@ -149,9 +152,7 @@ def archive_git_head(
             # A directory pathspec may carry a trailing slash; git archive
             # accepts either form, so the presence check must too.
             prefix = pathspec.rstrip("/")
-            if not any(
-                name == prefix or name.startswith(prefix + "/") for name in at_head
-            ):
+            if not any(name == prefix or name.startswith(prefix + "/") for name in at_head):
                 missing.append(pathspec)
         if missing:
             raise _abort(
@@ -225,7 +226,12 @@ class OmpAgent(BaseInstalledAgent):
     the install command installs, recorded with the argv in ``run-flags.json``.
     """
 
-    capabilities = AgentCapabilities()
+    # ATIF is the one capability this adapter implements; every other flag stays
+    # false because Harbor gates on it, and a flag turned on without the
+    # behaviour behind it is a silent gap. ``atif`` is true because
+    # ``convert_trajectory`` builds a validated trajectory and
+    # ``populate_context_post_run`` writes one.
+    capabilities = AgentCapabilities(atif=True)
     MODEL_CONNECTION = ModelConnectionSpec(passthrough=True)
 
     options_model = OmpOptions
@@ -365,9 +371,7 @@ class OmpAgent(BaseInstalledAgent):
                 "aborts before any upload and before any model spend"
             )
         src = Path(str(src_value)).expanduser()
-        commit, tar_bytes = archive_git_head(
-            src, what="the config content", pathspecs=paths
-        )
+        commit, tar_bytes = archive_git_head(src, what="the config content", pathspecs=paths)
         await self.exec_as_agent(
             environment,
             command=f"mkdir -p {install.RESOLVED_DIR.as_posix()}",
@@ -481,9 +485,7 @@ class OmpAgent(BaseInstalledAgent):
             name = shlex.quote(str(plugin.get("name") or ""))
             # The source was shipped and extracted at install time; the install
             # reads the container path, so no host path reaches the container.
-            parts.append(
-                f"{omp_env} omp install {shlex.quote(PLUGIN_DIR.as_posix())}"
-            )
+            parts.append(f"{omp_env} omp install {shlex.quote(PLUGIN_DIR.as_posix())}")
             parts.append(f"{omp_env} omp plugin enable {name}")
             for key, value in sorted((plugin.get("settings") or {}).items()):
                 parts.append(
@@ -520,9 +522,7 @@ class OmpAgent(BaseInstalledAgent):
         argv, model = self._run_argv(instruction)
         # The argv is recorded before omp launches (and in an install-only
         # trial), so a trial always shows what it would have run.
-        await _upload_json_record(
-            environment, {"argv": argv, "model": model}, RUN_FLAGS_RECORD
-        )
+        await _upload_json_record(environment, {"argv": argv, "model": model}, RUN_FLAGS_RECORD)
         if self.options.install_only:
             # Prove the install without model spend: nothing launches and no
             # hook command runs.
@@ -612,6 +612,10 @@ class OmpAgent(BaseInstalledAgent):
         omp reports through ``model_usage`` is visible without an ATIF
         trajectory. A session nobody can read leaves the context empty rather
         than filling it with zeros.
+
+        The trajectory is written last, from the same session and the same
+        reader, so its totals and the context's are the same numbers — and a
+        conversion the accounting refuses costs the trial no metrics.
         """
 
         session_dir = self.logs_dir / self.options.session_dir_name
@@ -645,18 +649,73 @@ class OmpAgent(BaseInstalledAgent):
         context.n_input_tokens = usage.total_input_tokens
         context.n_output_tokens = usage.output_tokens
         context.n_cache_tokens = usage.cache_read_tokens
-        context.cost_usd = round(usage.cost_usd, 6) if usage.cost_usd > 0 else None
+        context.cost_usd = session.reported_cost(usage.cost_usd)
         if usage.models:
-            context.model_usage = {
-                model: ModelUsage(
-                    n_input_tokens=totals.total_input_tokens,
-                    n_cache_tokens=totals.cache_read_tokens,
-                    n_output_tokens=totals.output_tokens,
-                    cost_usd=round(totals.cost_usd, 6) if totals.cost_usd > 0 else None,
-                )
-                for model, totals in sorted(usage.models.items())
-            }
+            # The same mapping the trajectory's per-model metrics use, so the two
+            # cannot report different numbers for the same session.
+            context.model_usage = trajectory.model_usage(usage)
         context.metadata = {"omp_steps": usage.steps}
+        self._write_trajectory()
+
+    # ------------------------------------------------------------------
+    # The ATIF trajectory
+    # ------------------------------------------------------------------
+    @override
+    def convert_trajectory(self, logs_dir: Path) -> Trajectory | None:
+        """Build the ATIF trajectory of the omp session under ``logs_dir``.
+
+        One implementation for both producers: Harbor's live stream calls this
+        with the temporary logs dir its poll assembled (the session tar under
+        ``<logs_dir>/sessions``), and ``_write_trajectory`` calls it with the
+        agent's own logs dir after the run. Returns ``None`` when there is no
+        session to convert.
+
+        Raises:
+            TrajectoryAccountingError: When the session cannot be accounted for
+                line by line; see ``harbor_omp.trajectory``.
+        """
+
+        return trajectory.convert_trajectory(
+            logs_dir,
+            session_dir_name=self.options.session_dir_name,
+            agent_name=self.name(),
+            agent_version=self.version() or "unknown",
+            model_name=self.model_name,
+        )
+
+    def _write_trajectory(self) -> None:
+        """Write ``logs_dir/trajectory.json`` for the session just summed.
+
+        Called only once the context has its numbers, so a refused trajectory
+        costs the trial no metrics. Best-effort and loud: a session line that no
+        step accounts for, a converter defect or an unwritable path leaves no
+        artifact and an error line naming why — a trajectory that is missing or
+        wrong must never look like one that is complete.
+        """
+
+        path = self.logs_dir / trajectory.TRAJECTORY_FILENAME
+        try:
+            built = self.convert_trajectory(self.logs_dir)
+            if built is None:
+                self.logger.warning(
+                    "no non-blank omp session line under %s to convert; no ATIF "
+                    "trajectory written to %s",
+                    self.logs_dir / self.options.session_dir_name,
+                    path,
+                )
+                return
+            errors = trajectory.write_trajectory(path, built)
+        except (trajectory.TrajectoryAccountingError, ValidationError, OSError) as exc:
+            self.logger.error("harbor-omp: no ATIF trajectory at %s: %s", path, exc)
+            return
+        if errors:
+            self.logger.error(
+                "harbor-omp: no ATIF trajectory at %s; Harbor's validator rejected it: %s",
+                path,
+                "; ".join(errors),
+            )
+            return
+        self.logger.debug("wrote the ATIF trajectory to %s", path)
 
     @property
     @override

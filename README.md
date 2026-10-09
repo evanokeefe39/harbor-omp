@@ -4,7 +4,8 @@ A [Harbor](https://docs.harborframework.com) agent adapter for
 **omp** — the coding-agent CLI shipped by the npm package
 `@oh-my-pi/pi-coding-agent`. It installs a pinned omp with bun inside the trial container, runs it
 under an isolated config home, records the argv it ran, and turns the omp
-session log into the token, cache and cost numbers Harbor reports.
+session log into the token, cache and cost numbers Harbor reports — plus the
+ATIF trajectory Harbor's viewer, `atif2otel` and the observability plugins read.
 
 ## Why this exists
 
@@ -94,13 +95,22 @@ harbor run --path <dataset> --include-task-name <task> \
    exact argv is recorded in `/logs/agent/resolved/run-flags.json` before omp
    launches, in install-only trials too.
 5. **Reports the metrics.** After the run, the session JSONL is summed into
-   `AgentContext`: input tokens (including cache), cache tokens, output tokens,
-   the cost omp itself reported, the step count, and the per-model breakdown
-   (`AgentContext.model_usage`) from the same pass. omp's `model_usage` events
-   — an auxiliary model, for example the one behind a `find` tool — are summed
-   too: they are additional to the assistant messages, and ignoring them
-   under-reports a trial. Provider-reported cost is preferred; nothing is
-   estimated.
+    `AgentContext`: input tokens (including cache), cache tokens, output tokens,
+    the cost omp itself reported, the step count, and the per-model breakdown
+    (`AgentContext.model_usage`) from the same pass. omp's `model_usage` events
+    — an auxiliary model, for example the one behind a `find` tool — are summed
+    too: they are additional to the assistant messages, and ignoring them
+    under-reports a trial. Provider-reported cost is preferred; nothing is
+    estimated.
+6. **Writes the trajectory.** The same session is converted into an ATIF
+    trajectory at `<logs>/trajectory.json`: one step per session line, in order,
+    each carrying its line's decoded payload under `extra.omp_event`, with
+    `final_metrics` equal to the context's numbers. `message` events become
+    conversation steps and every other event (session lifecycle, config
+    changes, tool dispatches, an auxiliary model's usage) becomes a `system`
+    step — nothing is dropped, and a line that would be dropped fails the
+    conversion loudly instead. A streaming job keeps the same file current
+    while the run is going (see the capabilities table).
 
 ## Extension points
 
@@ -123,11 +133,11 @@ job that asks for more instead of silently under-delivering:
 
 | Capability | Declared | Notes |
 |---|---|---|
-| ATIF trajectory (`atif`) | **no** | `convert_trajectory` is not overridden, so no `logs_dir/trajectory.json` is written and no viewer/Otel/`atif2otel` consumer gets anything. This is the largest gap; the seam is `convert_trajectory` reading through `harbor_omp.session`, and the follow-up work is tracked in this repo's `CHANGELOG.md`. |
+| ATIF trajectory (`atif`) | **yes** | `logs_dir/trajectory.json` is written after every run from the same session the metrics come from, and is validated by Harbor's own `trajectory_validator` before it lands. One step per session line with the line's payload verbatim under `extra.omp_event`; a torn line refuses the whole conversion rather than producing a shorter artifact. `final_metrics` carry the context's totals, including the auxiliary model, whose per-model numbers are in `final_metrics.extra.models` (a `system` step may not carry ATIF `metrics`). |
 | resume / load / handoff | **no** | Harbor correctly refuses rather than pretending. |
 | native config (`config=`) | **no** | Rejected at construction by Harbor (`native_config=False`). |
 | skills / MCP servers | **no** | Harbor's `/harbor/skills` seam and `mcp_servers` are not read; skills instead travel as shipped config content (`config_source`/`seed`). |
-| live streaming | **no** | `remote_session_logs_dir` is provided (the session dir is on the mounted log volume), but the live-conversion half of that seam is not implemented: a `--stream` job makes Harbor tar the session JSONL into `<logs_dir>/sessions/` on every poll, and `convert_trajectory` returns `None`, so no trajectory is ever produced. |
+| live streaming | **partly** | The converters are the streaming half: a `--stream` job (needs `environment.stream: true` in the job config) makes Harbor tar the session JSONL into a temp `<logs_dir>/sessions/` every ~2 s and call `convert_trajectory`, which now builds a trajectory from exactly that layout, so the trial's `agent/trajectory.json` is populated while the run is still going and rewritten complete after it. Not declared as a capability because Harbor has no streaming flag to declare: `environment.stream` is the switch, and `remote_session_logs_dir` already points at the mounted session dir. |
 
 Other deliberate limits:
 

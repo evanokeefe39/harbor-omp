@@ -30,13 +30,29 @@ def test_the_adapter_is_an_installed_agent() -> None:
     assert issubclass(OmpAgent, BaseInstalledAgent)
 
 
-def test_no_atif_is_claimed_and_none_is_produced(make_agent, tmp_path: Path) -> None:
-    """``capabilities.atif`` is false, and the converter really produces nothing
-    (the default base-class behaviour)."""
+def test_atif_is_claimed_and_a_trajectory_really_is_produced(make_agent, tmp_path: Path) -> None:
+    """``capabilities.atif`` is true because the converter produces one — the
+    flag is a promise Harbor gates on, so the declaration is checked against the
+    behaviour. An empty logs dir is still *absent*: no session, no trajectory."""
     agent = make_agent()
 
-    assert agent.capabilities.atif is False
+    assert agent.capabilities.atif is True
     assert agent.convert_trajectory(tmp_path) is None
+
+    directory = tmp_path / "omp-sessions"
+    directory.mkdir()
+    (directory / "session.jsonl").write_text(
+        '{"type":"session","id":"s","timestamp":"2026-10-09T12:00:00.000Z"}\n'
+        '{"type":"message","timestamp":"2026-10-09T12:00:01.000Z","message":'
+        '{"role":"user","content":[{"type":"text","text":"do it"}]}}\n',
+        encoding="utf-8",
+    )
+
+    built = agent.convert_trajectory(tmp_path)
+
+    assert built is not None
+    assert [step.source for step in built.steps] == ["system", "user"]
+    assert built.agent.name == "omp"
 
 
 def test_resume_load_and_handoff_are_refused_not_faked(make_agent, tmp_path: Path) -> None:

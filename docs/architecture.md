@@ -8,12 +8,15 @@
 | `harbor_omp/options.py` | The option model and the npm-spec normalisation. | pydantic, Harbor's options base |
 | `harbor_omp/install.py` | bun and omp installation, the version probe, container paths. | stdlib |
 | `harbor_omp/session.py` | The session JSONL reader: usage, cost, steps. | **stdlib only** |
+| `harbor_omp/trajectory.py` | The ATIF trajectory: the converter both paths use, and the validated write. | Harbor, pydantic, `harbor_omp.session` |
 | `harbor_omp/hooks.py` | The documented extension points and the shell lines they compile to. | stdlib |
 
 Two boundaries are deliberate:
 
 - `session.py` has no third-party import, so a harness that runs omp without
-  Harbor can still read a session (enforced by a test).
+  Harbor can still read a session (enforced by a test). Its one consumer inside
+  the package is `trajectory.py`, which is where the Harbor dependency lives:
+  the trajectory *is* a Harbor artifact, so it cannot travel with the reader.
 - Nothing in the package imports a benchmark, a profile, or an eval harness. The
   only names it knows from the outside world are the options a caller passes
   (enforced by a test and a source scan).
@@ -42,7 +45,15 @@ run()  ─────────────▶ run()
                                                           post-commands
    sync logs ◀──────── logs_dir/<session_dir_name>/ ◀───── /logs/agent/omp-sessions/
        metrics ◀────── populate_context_post_run()  ─────▶ (read from logs_dir)
+    trajectory ◀────── convert_trajectory() ────────────▶ logs_dir/trajectory.json   (ATIF)
 ```
+
+A streaming job adds one loop: while the agent runs, Harbor's `sync_trajectory`
+tars the session dir every ~2 s into a temporary logs dir and calls
+`convert_trajectory` — the same converter, reading the same reader, from the
+`<logs_dir>/sessions` layout — so the trial's `agent/trajectory.json` is
+populated before the run ends. The post-run call above then rewrites it complete
+from the session on disk.
 
 The run script is one shell, in this order:
 
@@ -88,23 +99,54 @@ Everything a consumer adds arrives as option data:
 The alternative — importing the consumer's modules — is what this package was
 extracted to avoid: it makes neither side reusable and neither side testable.
 
-## The ATIF seam (not implemented)
+## The ATIF trajectory
 
-Harbor's `atif` capability is declared false and `convert_trajectory` is **not**
-overridden, so no `logs_dir/trajectory.json` is written. When it is added, the
-shape is:
+`OmpAgent.convert_trajectory(logs_dir)` is the one converter, and it serves both
+producers: Harbor's live stream (which assembles a temporary logs dir whose
+session tar is extracted under `<logs_dir>/sessions`) and
+`populate_context_post_run` (which calls it with the agent's own logs dir and
+writes `<logs>/trajectory.json`). `capabilities.atif` is true because both
+happen, not because the flag was set.
 
-1. `harbor_omp/trajectory.py` builds a `harbor.models.trajectories.Trajectory`
-   from the session JSONL, read through `session.iter_session_events` (the
-   streaming reader already exists for this);
-2. `OmpAgent.convert_trajectory(logs_dir)` returns it, which serves both the
-   post-run path and, once `environment.stream` is used, the live path
-   (`remote_session_logs_dir` already points at the right directory);
-3. `capabilities.atif` flips to true and the README known-gaps row moves;
-4. per-model `model_usage` is **already** populated from the session
-   (`session.sum_session_usage` returns the per-model totals and the adapter
-   maps them onto `AgentContext.model_usage`), so the trajectory does not have
-   to supply it.
+The encoding, from `harbor_omp/trajectory.py`'s module docstring:
 
-Until then, tokens, cache and cost come from the session JSONL directly — the
-same numbers, without a trajectory artifact.
+1. **One step per non-blank session line**, in file order. `message` events are
+   conversation steps (`user` → `user`, `assistant` → `agent`); every other
+   event — `session`, `title`, `model_change`, `thinking_level_change`,
+   `custom`, `custom_message`, `title_change`, `model_usage` — is a `system`
+   step.
+2. **Every step carries its line**, decoded, under `extra.omp_event`. The
+   trajectory alone reconstructs the session; the renderings in `message` are
+   readings of that payload, and they say so.
+3. **The accounting is checked.** `_account` refuses a trajectory whose steps do
+   not account for every line — a torn line raises
+   `TrajectoryAccountingError` rather than producing a shorter artifact that
+   would read as a complete one. The post-run caller catches it, logs it, and
+   leaves the trial's metrics alone: they were read from the session first.
+4. **The write is validated.** `write_trajectory` puts the document through
+   `harbor.utils.trajectory_validator` on disk (a temporary file in the target
+   directory) and only then replaces the target, so a document a consumer's
+   loader would reject never lands.
+
+Two choices are deliberate and cost something, so they are stated rather than
+implied:
+
+- **A `toolResult` line is its own `system` step**, not the calling step's
+  `observation`. ATIF's `source` is one of `system`/`user`/`agent`, and Harbor's
+  validator requires an observation result's `source_call_id` to name a tool
+  call of *its own* step — folding the result into the calling step would leave
+  its line with no step and break (3). The pairing is kept in
+  `extra.omp_tool_call_id`, which matches the `tool_calls[].tool_call_id` on the
+  agent step that issued the call.
+- **`final_metrics` are the session reader's totals**, not a second summation
+  over the steps, so the trajectory and `AgentContext` cannot disagree. The
+  auxiliary model's `model_usage` records are real spend that ATIF cannot carry
+  as step metrics (a `system` step may not have `metrics`), so their per-model
+  numbers live in `final_metrics.extra.models`, built by the one
+  `trajectory.model_usage` mapping the context also uses.
+
+The reader stayed the single parser: `session.read_session_lines` is the
+accounting view (every non-blank line, decoded or not) beside the existing
+streaming `iter_session_events`, and both share `_parse_event`; the numeric
+coercion and the "zero cost means not reported" rule are shared too, so a value
+the metric path counts as unreadable cannot be read as a number elsewhere.

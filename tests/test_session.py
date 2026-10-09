@@ -87,9 +87,7 @@ def test_the_auxiliary_models_usage_record_is_summed_not_ignored(tmp_path: Path)
     assert own.output_tokens == FIXTURE_OUTPUT
     assert own.cache_read_tokens == FIXTURE_CACHE_READ
     assert own.cache_write_tokens == FIXTURE_CACHE_WRITE
-    assert own.total_input_tokens == (
-        FIXTURE_INPUT + FIXTURE_CACHE_READ + FIXTURE_CACHE_WRITE
-    )
+    assert own.total_input_tokens == (FIXTURE_INPUT + FIXTURE_CACHE_READ + FIXTURE_CACHE_WRITE)
     assert own.cost_usd == pytest.approx(FIXTURE_COST)
     assert own.records == FIXTURE_STEPS
 
@@ -238,10 +236,7 @@ def test_iter_session_events_yields_the_objects_and_skips_junk(tmp_path: Path) -
     in file order, with junk dropped."""
     directory = _sessions_dir(tmp_path)
     (directory / "session.jsonl").write_text(
-        '{"type":"message"}\n'
-        "[1, 2, 3]\n"
-        "not json\n"
-        '{"type":"model_usage"}\n',
+        '{"type":"message"}\n[1, 2, 3]\nnot json\n{"type":"model_usage"}\n',
         encoding="utf-8",
     )
 
@@ -270,3 +265,39 @@ def test_the_fixture_flows_through_the_streaming_reader(tmp_path: Path) -> None:
         "custom",
         "title_change",
     ]
+
+
+def test_the_accounting_reader_reports_every_non_blank_line(tmp_path: Path) -> None:
+    """The view the trajectory converter needs: one entry per non-blank line,
+    whether or not it decoded, with the site of each — so a caller can prove
+    that every line became something. A JSON document that is not an object is
+    no more an event than a torn line is."""
+    directory = _sessions_dir(tmp_path)
+    (directory / "session.jsonl").write_text(
+        '{"type":"message"}\n\nnot json\n[1, 2, 3]\n',
+        encoding="utf-8",
+    )
+
+    lines, unreadable = session.read_session_lines(directory)
+
+    assert unreadable == 0
+    assert [(line.site, line.event) for line in lines] == [
+        ("session.jsonl:1", {"type": "message"}),
+        ("session.jsonl:3", None),
+        ("session.jsonl:4", None),
+    ]
+
+
+def test_the_accounting_reader_counts_a_file_it_cannot_read(tmp_path: Path) -> None:
+    """A file nobody can read is counted rather than dropped: its lines are
+    exactly the ones a caller cannot see, and silently omitting them is how a
+    partial reading gets mistaken for a complete one."""
+    directory = _sessions_dir(tmp_path)
+    (directory / "a.jsonl").write_text('{"type":"session"}\n', encoding="utf-8")
+    (directory / "torn.jsonl").write_bytes(b"\xff\xfe not utf-8\n")
+
+    lines, unreadable = session.read_session_lines(directory)
+
+    assert unreadable == 1
+    assert [line.site for line in lines] == ["a.jsonl:1"]
+    assert session.read_session_lines(tmp_path / "never-created") == ([], 0)

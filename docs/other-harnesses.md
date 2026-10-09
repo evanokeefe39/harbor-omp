@@ -29,6 +29,15 @@ session.
 recipes above and keep its own lifecycle: the interesting parts are the
 container-side script and the session reader, not the base class.
 
+`harbor_omp.trajectory` does not travel either, and by construction: the ATIF
+trajectory is a Harbor artifact — the converter builds
+`harbor.models.trajectories` and gates the write with Harbor's own
+`trajectory_validator`. A harness without Harbor reads the session with
+`sum_session_usage` (totals, per model) and `read_session_lines` (every
+non-blank line, decoded or not, for its own accounting) and renders whatever
+format it needs; the trajectory's encoding rules are documented in that module's
+docstring for a harness that wants to mirror them.
+
 ## A non-Harbor consumer, in outline
 
 1. Install omp in your sandbox with `install.install_command(spec)`.

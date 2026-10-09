@@ -20,11 +20,14 @@ The two classes are summed together. A ``model_usage`` record whose (model,
 timestamp) an assistant message already covered is dropped, because that pair
 is the same turn reported twice.
 
-This module is also the reader the ATIF trajectory converter will use (the
-converter is a follow-up; see ``docs/architecture.md``). A malformed line, an
-unreadable file, or a non-numeric usage field is counted rather than raised:
-the totals must stay readable, and the counts are how a caller notices that the
-totals are low.
+This module is also the reader the ATIF trajectory converter uses
+(``harbor_omp.trajectory``, whose module docstring states the encoding). A
+malformed line, an unreadable file, or a non-numeric usage field is counted
+rather than raised here: the totals must stay readable, and the counts are how
+a caller notices that the totals are low. That tolerance is exactly wrong for a
+trajectory, so the converter reads through ``read_session_lines`` instead — the
+same parsing, reporting every non-blank line whether or not it decoded, so a
+caller that must account for every line can prove it did.
 """
 
 from __future__ import annotations
@@ -89,6 +92,39 @@ def session_files(session_dir: Path) -> list[Path]:
     return sorted(session_dir.glob("*.jsonl"))
 
 
+def reported_cost(cost_usd: float) -> float | None:
+    """A summed cost as Harbor reports it: ``None`` when omp reported none.
+
+    A zero cost is omp saying "not reported", not a free run, so it must not be
+    published as a confident ``0.0``. Both the adapter's ``AgentContext`` and
+    the trajectory's totals go through this one rule, at the precision the
+    adapter has always published.
+    """
+
+    return round(cost_usd, 6) if cost_usd > 0 else None
+
+
+def number(value: object) -> float | None:
+    """A token/cost value as a float, or None when it is not numeric.
+
+    Booleans are not numbers here: ``true`` in a usage field is malformed
+    input, not one token. The metric path and the trajectory share this one
+    coercion, so a value the reader counts as unreadable cannot be read as a
+    number somewhere else.
+    """
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
 def iter_session_events(session_dir: Path) -> Iterator[dict[str, Any]]:
     """Yield every JSON object event in the directory, in file order.
 
@@ -107,6 +143,70 @@ def iter_session_events(session_dir: Path) -> Iterator[dict[str, Any]]:
             event = _parse_event(line)
             if event is not None:
                 yield event
+
+
+@dataclass(frozen=True)
+class SessionLine:
+    """One non-blank line of a session file, and the event it decoded to.
+
+    ``event`` is None when the line is not a JSON object — a torn write, a
+    truncated tail, or a document that is not an object. The line is reported
+    anyway: a caller that has to account for every line needs to see the ones
+    that carry no event, or it cannot say that it accounted for them.
+    """
+
+    #: The session file the line came from (its name, not its path).
+    file_name: str
+    #: The line's 1-based number within its file.
+    number: int
+    #: The decoded event, or None when the line is not a JSON object.
+    event: dict[str, Any] | None
+
+    @property
+    def site(self) -> str:
+        """The line's site as ``file:line``, for a message that names it."""
+
+        return f"{self.file_name}:{self.number}"
+
+
+def read_session_lines(session_dir: Path) -> tuple[list[SessionLine], int]:
+    """Every non-blank line of the directory's JSONL, and unreadable file count.
+
+    ``iter_session_events`` is the streaming view — decoded events only, junk
+    dropped. This is the accounting view: one entry per non-blank line, in file
+    order, whether or not the line decoded, so a caller can prove that every
+    line became something. A file that could not be read at all is *counted* in
+    the returned total rather than dropped, because the lines a caller cannot
+    see are exactly the ones that would go missing silently.
+
+    Blank lines are not lines: they carry nothing, and the summer has always
+    ignored them. Returns ``([], 0)`` for a directory with no JSONL.
+
+    Unlike the streaming reader this materialises the directory. That is the
+    price of the accounting — a caller that pairs lines with its own output
+    needs all of them — so it is kept apart from the metric path, which stays a
+    single streaming pass.
+    """
+
+    lines: list[SessionLine] = []
+    unreadable_files = 0
+    for session_file in session_files(session_dir):
+        try:
+            text = session_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            unreadable_files += 1
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            lines.append(
+                SessionLine(
+                    file_name=session_file.name,
+                    number=number,
+                    event=_parse_event(line),
+                )
+            )
+    return lines, unreadable_files
 
 
 def sum_session_usage(session_dir: Path) -> SessionUsage | None:
@@ -190,7 +290,7 @@ class _Accumulator:
         values: dict[str, int] = {}
         for field_name in ("input", "output", "cacheRead", "cacheWrite"):
             raw = usage.get(field_name)
-            value = _number(raw)
+            value = number(raw)
             if value is None:
                 if raw is not None:
                     self.skipped_values += 1
@@ -200,7 +300,7 @@ class _Accumulator:
         cost_field = usage.get("cost")
         if isinstance(cost_field, dict):
             raw_total = cost_field.get("total")
-            total = _number(raw_total)
+            total = number(raw_total)
             if total is None:
                 if raw_total is not None:
                     self.skipped_values += 1
@@ -285,22 +385,3 @@ def _timestamp_key(event: dict[str, Any]) -> str:
     if isinstance(value, (str, int, float)):
         return str(value)
     return ""
-
-
-def _number(value: object) -> float | None:
-    """A token/cost value as a float, or None when it is not numeric.
-
-    Booleans are not numbers here: ``true`` in a usage field is malformed
-    input, not one token.
-    """
-
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
