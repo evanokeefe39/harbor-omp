@@ -176,7 +176,11 @@ uv run python scripts/container_smoke.py
 `FEEDBACK.md` lists the sensors. [`docs/spec.md`](docs/spec.md) states what the
 package must do, [`docs/design.md`](docs/design.md) records the shape chosen and
 the alternatives it won against, and [`docs/plan.md`](docs/plan.md) tracks the
-remaining workstreams. `AGENTS.md` and `CONTRIBUTING.md` cover conventions.
+remaining workstreams. [`docs/worked-example.md`](docs/worked-example.md) records
+two real runs — a single-task acceptance trial and the 30-task data-eng-bench on
+four parallel Daytona sandboxes — with the screenshots, the memory/concurrency
+recipe and the foot-guns found. `AGENTS.md` and `CONTRIBUTING.md` cover
+conventions.
 
 ## Licence
 
