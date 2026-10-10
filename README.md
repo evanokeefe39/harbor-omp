@@ -93,7 +93,9 @@ harbor run --path <dataset> --include-task-name <task> \
    [--thinking=<value>] <instruction>`, with output captured to
    `<logs>/omp.txt` and the process status reported unchanged to Harbor. The
    exact argv is recorded in `/logs/agent/resolved/run-flags.json` before omp
-   launches, in install-only trials too.
+   launches, in install-only trials too. **After omp exits 0, the session must
+   contain at least one tool call**, or the run is reported as a failed agent
+   run (see the limits below).
 5. **Reports the metrics.** After the run, the session JSONL is summed into
     `AgentContext`: input tokens (including cache), cache tokens, output tokens,
     the cost omp itself reported, the step count, and the per-model breakdown
@@ -150,6 +152,16 @@ Other deliberate limits:
   the error type as a hint rather than as a structured field.
 - **No per-exec timeout.** A hung omp runs to Harbor's task timeout rather than
   a per-execution bound.
+- **A run with no tool call is a failed run, not a scored one.** omp exits 0
+  whenever the model answers, including when it answers without acting. So after
+  a 0 exit the agent checks the session for a tool call. If there is none, it
+  raises Harbor's `NonZeroAgentExitCodeError`, and the trial is recorded as
+  errored (and retryable) instead of being scored. The observed cause was
+  OpenRouter's Responses API served by the OpenInference upstream, which made
+  `deepseek-v4-flash` answer omp's system prompt instead of the task
+  (`docs/worked-example.md` § 3). A task legitimately answered in prose alone
+  would trip this; a task verified against the environment cannot pass without
+  acting on it.
 - **The instruction is passed as a positional argv element**, quoted by the
   agent — there is no stdin/env prompt channel.
 - **File modes are not preserved** by `extra_files`; a `pre_command` that needs

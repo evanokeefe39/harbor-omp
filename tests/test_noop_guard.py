@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import uuid
@@ -80,7 +81,12 @@ TOOL_TURN = _line(
             "role": "assistant",
             "content": [
                 {"type": "text", "text": "Let me inspect the project."},
-                {"type": "toolCall", "id": "call_1", "name": "bash", "arguments": {"command": "ls"}},
+                {
+                    "type": "toolCall",
+                    "id": "call_1",
+                    "name": "bash",
+                    "arguments": {"command": "ls"},
+                },
             ],
             "stopReason": "toolUse",
         },
@@ -110,12 +116,15 @@ class ShellEnvironment:
     """
 
     def __init__(self, session_lines: list[str], status: int = 0) -> None:
-        session = "\\n".join(line.replace("'", "'\\''") for line in session_lines)
+        # The lines are printf *arguments*, never its format: a format string
+        # would decode the JSON's own escapes (\" -> ") and write a session omp
+        # never would.
+        session = " ".join(shlex.quote(line) for line in session_lines)
         self.prelude = (
             "omp() {\n"
             '  for arg in "$@"; do case "$arg" in --session-dir=*) dir="${arg#--session-dir=}";; esac; done\n'
             '  mkdir -p "$dir"\n'
-            f"  printf '{session}\\n' > \"$dir/session.jsonl\"\n"
+            f"  printf '%s\\n' {session} > \"$dir/session.jsonl\"\n"
             f"  return {status}\n"
             "}\n"
             "bun() {\n:\n}\n"
