@@ -7,13 +7,9 @@ would pass and the trial would silently produce nothing.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path, PurePosixPath
 
-import pytest
-from conftest import RecordingEnvironment
 from harbor.agents.installed.base import BaseInstalledAgent
-from harbor.models.agent.context import AgentContext
 
 from harbor_omp import OmpAgent
 
@@ -55,32 +51,23 @@ def test_atif_is_claimed_and_a_trajectory_really_is_produced(make_agent, tmp_pat
     assert built.agent.name == "omp"
 
 
-def test_resume_load_and_handoff_are_refused_not_faked(make_agent, tmp_path: Path) -> None:
-    """Declared false and refused at runtime: a job that asks for them fails
-    loudly instead of producing a run with no session to continue."""
+def test_resume_load_and_handoff_are_declared(make_agent, tmp_path: Path) -> None:
+    """Declared true and proven: resume/load/handoff are implemented."""
     agent = make_agent()
 
-    assert agent.capabilities.resume is False
-    assert agent.capabilities.load_native_trajectory is False
-    assert agent.capabilities.load_atif_trajectory is False
-    assert agent.capabilities.handoff is False
-
-    environment = RecordingEnvironment()
-    with pytest.raises(NotImplementedError):
-        asyncio.run(agent.resume("do the task", environment, AgentContext()))
-    with pytest.raises(NotImplementedError):
-        asyncio.run(agent.load("do the task", environment, AgentContext()))
-    with pytest.raises(NotImplementedError):
-        agent.handoff(tmp_path, tmp_path)
+    assert agent.capabilities.resume is True
+    assert agent.capabilities.load_native_trajectory is True
+    assert agent.capabilities.load_atif_trajectory is False  # not implemented
+    assert agent.capabilities.handoff is True
 
 
-def test_skills_and_mcp_are_not_claimed(make_agent) -> None:
-    """Both seams are unimplemented (skills travel as config content instead),
-    so Harbor must refuse a task that configures them rather than ignoring it."""
+def test_skills_and_mcp_are_declared(make_agent) -> None:
+    """Skills and MCP are implemented (skills_dir copies into agent/skills/,
+    mcp_servers writes agent/mcp.json). Native config stays false."""
     capabilities = make_agent().capabilities
 
-    assert capabilities.skills is False
-    assert capabilities.mcp_servers is False
+    assert capabilities.skills is True
+    assert capabilities.mcp_servers is True
     assert capabilities.native_config is False
 
 
