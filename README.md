@@ -136,9 +136,13 @@ job that asks for more instead of silently under-delivering:
 | Capability | Declared | Notes |
 |---|---|---|
 | ATIF trajectory (`atif`) | **yes** | `logs_dir/trajectory.json` is written after every run from the same session the metrics come from, and is validated by Harbor's own `trajectory_validator` before it lands. One step per session line with the line's payload verbatim under `extra.omp_event`; a torn line refuses the whole conversion rather than producing a shorter artifact. `final_metrics` carry the context's totals, including the auxiliary model, whose per-model numbers are in `final_metrics.extra.models` (a `system` step may not carry ATIF `metrics`). |
-| resume / load / handoff | **no** | Harbor correctly refuses rather than pretending. |
-| native config (`config=`) | **no** | Rejected at construction by Harbor (`native_config=False`). |
-| skills / MCP servers | **no** | Harbor's `/harbor/skills` seam and `mcp_servers` are not read; skills instead travel as shipped config content (`config_source`/`seed`). |
+| resume | **yes** | `_run_argv` appends `--continue` when `self._resume` is true (set by the base class's `resume()`). |
+| load native | **yes** | `_run_argv` appends `--resume <stem>` when `self._load` is true and a session was seeded; `_upload_load_trajectory` places the file in the container session dir; `_validate_native_load_trajectory` rejects anything that is not omp session JSONL. |
+| load ATIF | **no** | ATIF-to-native conversion is lossy (tool-result pairing, thinking blocks), so a loaded session would be a fabricated history. |
+| handoff | **yes** | `handoff(cls, trial_dir, cwd)` copies the trial's single session into the local session dir (`~/.omp/sessions/`, respecting `PI_CONFIG_DIR`) and returns `["omp", "--resume", <stem>]`. Requires `omp` on PATH and exactly one session. |
+| native config (`config=`) | **no** | Consumer config already travels through `seed` / `config_source`; Harbor's `config=` would be a second channel that still only writes files. |
+| skills | **yes** | When `skills_dir` is set, `_config_home_command` copies its immediate children into `<config_dir>/agent/skills/` so omp discovers `<skill>/SKILL.md`, and a missing, unreadable or **empty** `skills_dir` fails the step loudly (strict — no `\|\| true` swallow; a skills_dir is only set when skills were meant to arrive). A consumer `run_flag` that disables discovery (`--no-skills`) still wins for that run — it is explicit config. |
+| MCP servers | **yes** | When `mcp_servers` is non-empty, `_config_home_command` writes `<config_dir>/agent/mcp.json` (stdio → `type`/`command`/`args`; `streamable-http` → `http` + `url`; SSE → `sse` + `url`). |
 | live streaming | **partly** | The converters are the streaming half: a `--stream` job (needs `environment.stream: true` in the job config) makes Harbor tar the session JSONL into a temp `<logs_dir>/sessions/` every ~2 s and call `convert_trajectory`, which now builds a trajectory from exactly that layout, so the trial's `agent/trajectory.json` is populated while the run is still going and rewritten complete after it. Not declared as a capability because Harbor has no streaming flag to declare: `environment.stream` is the switch, and `remote_session_logs_dir` already points at the mounted session dir. **What it still does not produce:** the trajectory is the only thing kept current — `AgentContext` (tokens, cache, cost) is still filled after the run, so a live viewer shows steps without metrics; the streamed file is written by Harbor's own writer, so it bypasses the validator gate the post-run write applies; and a poll that catches a half-written session line refuses *that poll* rather than publishing a partial trajectory, so the file is refreshed on the next one. |
 
 Other deliberate limits:
@@ -152,6 +156,16 @@ Other deliberate limits:
   the error type as a hint rather than as a structured field.
 - **No per-exec timeout.** A hung omp runs to Harbor's task timeout rather than
   a per-execution bound.
+- **Mid-run metrics are a platform limit.** Harbor 0.24.0's streaming poll
+  (`sync_trajectory`) calls only `convert_trajectory` — nothing updates
+  `AgentContext` while a run is going, for any agent. Tokens and cost are
+  post-run by design; only the trajectory is kept current.
+- **A configured MCP server is an external dependency.** omp connects at
+  startup. A server that fails its handshake was observed to warn and continue
+  (`MCP server "probe" failed to connect … tools are unavailable for this
+  run`); one earlier smoke cell stalled unbounded with no server process
+  spawned (see DEFECTS, 2026-10-10). Nothing here retries or bounds that —
+  treat a supplied server as any other external service.
 - **A run with no tool call is a failed run, not a scored one.** omp exits 0
   whenever the model answers, including when it answers without acting. So after
   a 0 exit the agent checks the session for a tool call. If there is none, it

@@ -28,6 +28,7 @@ class RecordingEnvironment:
         self.execs: list[dict[str, object]] = []
         self.sequence: list[tuple[str, str]] = []
         self.stdout = stdout
+        self.default_user: str | None = None
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
         source = Path(source_path)

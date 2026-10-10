@@ -92,21 +92,16 @@ it is **not an import-path swap**: `evals/runners/run_trial.py`'s
 required. Do not edit harness-evals while a batch of its own is running — it
 imports that repo's code and an edit splits the run.
 
-## 5. README gaps — open, unblocked
+## 5. README gaps — closed 2026-10-10
 
 The README's "Capabilities and known gaps" table declares four gaps. Each closes
 either by implementing it (with a red-case test) or by documenting *why* it stays
 `no` — the second is an acceptable outcome, not a failure. No sandbox needed.
 
-| Gap | Declared | The work |
-|---|---|---|
-| live streaming | **partly** | The trajectory streams; `AgentContext` is filled post-run. Either finish the metrics half or **narrow the README claim** to match the code |
-| resume / load / handoff | **no** | Implement against Harbor's contract, or state why the omp session format does not support it. "Keep `no`, document the reason" is a valid close |
-| native config (`config=`) | **no** | Rejected at construction (`native_config=False`). Decide whether the native seam is reachable from omp; if not, document the rationale |
-| skills / MCP servers | **no** | Harbor's `/harbor/skills` seam and `mcp_servers` are unread; skills travel as shipped config content. Same either/or as native config |
-
-Order: **streaming first** (it is the one already half-built), then
-resume/load/handoff, then native config / skills / MCP.
+The four gaps above were all closed in the capability-closers change. The README
+table now reflects the new truth: resume, load native, handoff, skills and MCP
+servers are **yes**, load ATIF stays **no** (lossy conversion documented) and
+native config stays **no** (second channel documented).
 
 ## 6. Publishing — done
 
