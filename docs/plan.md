@@ -125,10 +125,10 @@ That step needs an explicit go-ahead.
 
 ## Next actions
 
-1. **Fix the silent no-op trials** — the highest-value item: ~half the 30-task
-   run answered an idle greeting and exited. Characterised in
-   `docs/worked-example.md` § 3; needs a root cause and a guard (detect
-   `omp_steps == 1`, fail the trial loudly rather than scoring 0).
+1. ~~**Fix the silent no-op trials**~~ — done 2026-10-10. Root cause is upstream
+   (OpenRouter Responses API × OpenInference; `docs/worked-example.md` § 3). The
+   agent now raises a run with no tool call as a failed agent run instead of
+   letting it be scored.
 2. **§ 4 cutover** — unblocked, but needs the kwargs mapping layer named there.
 3. **§ 5 README gaps** — streaming first; no sandbox needed.
 4. **PyPI** — needs an explicit go-ahead; nothing is published.

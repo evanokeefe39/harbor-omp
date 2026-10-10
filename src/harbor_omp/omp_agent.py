@@ -85,6 +85,12 @@ CONFIG_DIR_NAME: Final[str] = ".omp"
 #: Harbor's workspace dir, and the cwd the agent and the hooks share.
 WORKSPACE_DIR: Final[str] = "/app"
 
+#: How omp's session JSONL marks a tool call: a content part's own ``"type"``
+#: key. omp writes compact JSON, so this unescaped form only matches structure;
+#: the same text inside a string value is escaped (``\"type\":\"toolCall\"``)
+#: and cannot satisfy the no-op guard.
+TOOL_CALL_MARKER: Final[str] = '"type":"toolCall"'
+
 
 def archive_git_head(
     src: Path, *, what: str, pathspecs: Sequence[str] | None = None
@@ -532,6 +538,16 @@ class OmpAgent(BaseInstalledAgent):
             command=self._run_command(argv),
             env=dict(self.model_connection.env),
         )
+        # omp exits 0 whenever the model answers, including when it answers
+        # without acting on the task at all. On 2026-10-09 an upstream
+        # (OpenRouter's Responses API via OpenInference) made the model reply to
+        # omp's system prompt ("Ready. What are we building?") on 22 of 30
+        # trials, and each was scored reward 0 as if it had tried. A run whose
+        # session records no tool call cannot have changed the environment, so
+        # it is reported as a failed agent run, which Harbor records and can
+        # retry, instead of a verdict. A failing omp raised above, so this only
+        # ever runs after an exit status of 0.
+        await self.exec_as_agent(environment, command=self._no_op_guard_command())
 
     def _run_command(self, argv: Sequence[str]) -> str:
         """The whole run script: env, hooks, agent, exit status.
@@ -570,6 +586,32 @@ class OmpAgent(BaseInstalledAgent):
             "exit $harbor_omp_agent_rc",
         ]
         return "\n".join(lines)
+
+    def _no_op_guard_command(self) -> str:
+        """Fail when omp's session records no tool call.
+
+        Pre: omp has exited 0. Post: exits 0 when any session file under the
+        session dir contains ``TOOL_CALL_MARKER``; otherwise prints the reason
+        on stderr and exits 1, so ``exec_as_agent`` raises Harbor's
+        ``NonZeroAgentExitCodeError``. A missing session dir counts as no tool
+        call: a run that left no session cannot be shown to have acted.
+
+        ``grep`` reads the files itself; there is no pipe, because Harbor runs
+        every exec under ``set -o pipefail``, and a reader killed by
+        ``grep -q``'s early exit would fail the check on a session that passed.
+        """
+
+        session_dir = (self.environment_logs_dir / self.options.session_dir_name).as_posix()
+        reason = (
+            f"harbor-omp: omp exited 0 but its session under {session_dir} records "
+            "no tool call: the model answered without acting on the task, so the "
+            "run is failed instead of scored (see omp.txt for what it said)"
+        )
+        return (
+            f"grep -qsF -- {shlex.quote(TOOL_CALL_MARKER)} "
+            f"{shlex.quote(session_dir)}/*.jsonl "
+            f"|| {{ echo {shlex.quote(reason)} >&2; exit 1; }}"
+        )
 
     def _effective_run_flags(self) -> list[str]:
         """The flags the run passes: ``run_flags`` when set, else the default."""

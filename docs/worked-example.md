@@ -172,24 +172,61 @@ do you need?"*, *"Nothing attached—no code, error, or task."*
 The agent's own reasoning at that step states it thought the message *"is just
 the system prompt contents, no actual task/question."*
 
-Characterised, not yet root-caused:
+#### Root cause — the upstream, not the agent
 
-- **Not** instruction framing — a task whose instruction opens `### Task: worked
-  (`dbt-customer-cltv-forecasting`, 186 steps) while others opening `# Title`
-  did not.
-- **Not** shell mangling — `$` and backticks appear in both working and failing
-  instructions, and the full instruction *was* received (it is present verbatim
-  in the trajectory).
-- **Non-deterministic** — the identical invocation worked in the acceptance
-  trial and in some fast-30 trials.
+Root-caused on 2026-10-10 by binary search, each split decided on runtime
+evidence:
 
-**Consequence for the benchmark numbers:** a trial that greets and exits is
-indistinguishable, in the summary table, from a trial that tried and failed —
-both are `reward 0.0`. Any pass/fail rate taken over these runs is therefore
-**not yet valid**; the no-op trials must be detected and excluded (e.g. by
-`omp_steps == 1` / cost below a floor) before the rate means anything. **Treat
-this run as evidence the pipeline scales, not as a benchmark score for the
-agent.**
+1. **Not the invocation.** The incumbent adapter ran 13 of the same tasks with a
+   byte-identical argv, omp version (`omp/18.6.0`), seed and user message, and
+   every one did real work.
+2. **The upstream provider separates them perfectly.** OpenRouter's generation
+   records (`/api/v1/generation?id=<responseId>`) name who served each first
+   call: **all 21 resolvable greetings came from OpenInference**, and none of the
+   working trials did (Venice, Relace, AtlasCloud, Baidu, StreamLake). OpenRouter
+   began routing `deepseek/deepseek-v4-flash` to OpenInference partway through
+   the run, and the incumbent was never routed there. The large first-call
+   prompt-cache hits on the greetings were a side effect of OpenRouter's
+   cache-sticky routing, not a cause.
+3. **Causal repro.** Real omp 18.6.0 in the benchmark image, same argv and seed,
+   upstream pinned through `models.yml` (`openRouterRouting.only`)
+   ([`scripts/omp_provider_repro.sh`](../scripts/omp_provider_repro.sh)):
+
+   | upstream | wire format | greeting |
+   |---|---|---|
+   | OpenInference | Responses API (omp's default for OpenRouter) | **6/6** (3 with a cache-busting nonce) |
+   | OpenInference | Chat Completions (`PI_OPENROUTER_RESPONSES=0`) | 0/3 |
+   | Venice | Responses API | 0/3 |
+
+**Mechanism:** on OpenRouter's Responses-API path to OpenInference,
+`deepseek-v4-flash` answers omp's system prompt (the `instructions`) as if it
+were the user's message. One reply quoted a system-prompt line back verbatim.
+It needs both the provider and the wire format; neither adapter's code is
+involved.
+
+**The agent-side defect was the silence.** omp exits 0 whenever the model
+answers, so each greeting was scored `reward 0` exactly like a trial that tried
+and failed. `OmpAgent.run` now checks omp's session after a 0 exit: **a run
+with no tool call is raised as `NonZeroAgentExitCodeError`**, and Harbor records
+the trial as errored (and retryable) instead of scoring it. Run against the 30
+real sessions above, the guard fails exactly the 22 no-op trials and passes the
+other 8. On Daytona, the same task (`dbt-fix-cac-payback-waterfall`) was run once
+per pinned upstream:
+
+|Pinned upstream|What omp did|Harbor recorded|
+|---|---|---|
+|OpenInference|1 step: `Ready. What's the task?`, $0.0002|`NonZeroAgentExitCodeError` "records no tool call"|
+|Venice|30 steps, 37 tool calls, $0.043|no exception, reward 1.0|
+
+**Mitigations, if you hit this upstream** (consumer config, not package
+behaviour): pin or reorder the upstream with
+`compat.openRouterRouting` in a seeded `agent/models.yml`, or export
+`PI_OPENROUTER_RESPONSES=0` from a `pre_command`. Both change what is being
+measured, so record the choice with the run.
+
+**Consequence for these numbers:** the 22 no-op trials say nothing about the
+agent. The honest reading of this run is **2 passed / 6 ran and failed / 22 never
+ran**. Treat it as evidence that the pipeline scales, not as a benchmark score.
 
 ## 4. Reproduce it
 
@@ -225,4 +262,4 @@ harbor run -c my.config.json --print-config      # remember: defaults are hidden
 | Does `override_memory_mb` shrink the sandbox? | **Yes** — 3000/2048 both produced a 2 GiB sandbox (GiB flooring) |
 | Does top-level `n_concurrent_trials` parallelise? | **Yes** — four trials and four sandboxes in flight |
 | What is the practical ceiling? | **5 × 2 GiB = 10 GiB** — the org cap; 4 × 2 GiB is safe |
-| Is the pass/fail rate trustworthy yet? | **No** — 22 of 30 trials never ran. The honest reading is **2 passed / 6 ran and failed / 22 no-opped** |
+| Is the pass/fail rate trustworthy? | **Not for this run** — 22 of 30 trials never ran (an upstream fault, root-caused above). With the no-op guard, such trials are recorded as errors instead of being scored |
