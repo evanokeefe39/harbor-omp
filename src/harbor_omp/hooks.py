@@ -26,6 +26,10 @@ the three hooks below — the fields live on ``OmpOptions`` (``extra_files``,
       own checks. A harness that wants a best-effort pre-command writes
       ``... || true`` itself.
 
+    The pre-commands run in an ``install_only`` trial too — install-time
+    evidence is what such a trial exists to capture — while omp never launches
+    and the post-commands never run.
+
 ``post_commands`` — best-effort collection
     Shell commands run as the agent user after omp exits and before the run
     exits. A post-command can never change the agent's exit code: the agent
@@ -39,6 +43,9 @@ the three hooks below — the fields live on ``OmpOptions`` (``extra_files``,
     else. Shell state a post-command changes — variables, the working
     directory, shell options, traps — does not outlive the block; files it
     writes do, which is what collection needs.
+
+    An ``install_only`` trial never runs the post-commands: with no agent run,
+    there is no session to collect from.
 
 The commands are the caller's shell text. The agent runs them in one script
 with the agent process, so the caller's lines share its working directory (``/app``)

@@ -68,8 +68,8 @@ def test_a_model_without_a_provider_is_refused(make_agent) -> None:
 
 
 def test_install_only_records_the_argv_and_runs_nothing(make_agent) -> None:
-    """The zero-spend gate: the exact argv lands in the record, and no command
-    runs at all."""
+    """The zero-spend gate with no pre-commands: the exact argv lands in the
+    record, and no command runs at all."""
     env = RecordingEnvironment()
     agent = make_agent(install_only=True)
 
@@ -80,6 +80,31 @@ def test_install_only_records_the_argv_and_runs_nothing(make_agent) -> None:
     assert record["model"] == MODEL
     assert record["argv"][-1] == "do the task"
     assert "--no-lsp" in record["argv"]
+
+
+def test_install_only_runs_pre_commands_and_never_the_agent(make_agent) -> None:
+    """Install-time evidence is what an install-only trial exists to capture:
+    the pre-commands run in the agent's own shell (same prologue), while the
+    agent never launches and the post-commands never run."""
+    env = RecordingEnvironment()
+    agent = make_agent(
+        install_only=True,
+        pre_commands=["echo evidence > /logs/agent/pre-ran.txt"],
+        post_commands=["echo collected"],
+    )
+
+    asyncio.run(agent.run("do the task", env, AgentContext()))
+
+    pre = env.commands_matching("pre-ran.txt")
+    assert len(pre) == 1
+    # The shared prologue means the pre-command sees the isolated config home
+    # the agent would have run under.
+    assert "export HOME=/tmp/omp-home PI_CONFIG_DIR=.omp" in pre[0]
+    assert env.commands_matching("echo collected") == []
+    assert env.commands_matching("omp -p") == []
+    # The argv is still recorded: an install-only trial always shows what it
+    # would have run.
+    assert RUN_FLAGS_RECORD.as_posix() in env.uploaded
 
 
 def test_a_normal_run_records_the_argv_before_launching_omp(make_agent) -> None:

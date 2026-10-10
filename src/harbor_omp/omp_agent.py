@@ -578,8 +578,16 @@ class OmpAgent(BaseInstalledAgent):
         # trial), so a trial always shows what it would have run.
         await _upload_json_record(environment, {"argv": argv, "model": model}, RUN_FLAGS_RECORD)
         if self.options.install_only:
-            # Prove the install without model spend: nothing launches and no
-            # hook command runs.
+            # Prove the install without model spend: omp never launches and
+            # the post-commands never run, but the pre-commands do —
+            # install-time evidence (a resolved-config dump, a toolchain
+            # probe) is what an install-only trial exists to capture.
+            if self.options.pre_commands:
+                await self.exec_as_agent(
+                    environment,
+                    command=self._install_only_hook_command(),
+                    env=dict(self.model_connection.env),
+                )
             return
         await self.exec_as_agent(
             environment,
@@ -597,6 +605,44 @@ class OmpAgent(BaseInstalledAgent):
         # ever runs after an exit status of 0.
         await self.exec_as_agent(environment, command=self._no_op_guard_command())
 
+    def _run_prologue(self, session_dir: PurePosixPath) -> list[str]:
+        """The shell prologue every run path shares.
+
+        Bun on PATH, the isolated config home exported, the workspace as cwd,
+        the session dir present — so a hook sees the same environment whether
+        or not the agent launches after it.
+        """
+
+        return [
+            "set -uo pipefail",
+            f"{{ {install.bun_path_snippet()}; }} || true",
+            f"mkdir -p {shlex.quote(session_dir.as_posix())} || true",
+            # bun and omp were installed under the original home; pin PATH to
+            # it before relocating HOME to the isolated config home.
+            'ORIG_HOME="$HOME"',
+            'export PATH="$ORIG_HOME/.bun/bin:$PATH"',
+            f"export HOME={shlex.quote(self._config_home)} PI_CONFIG_DIR={CONFIG_DIR_NAME}",
+            # The workspace is the shared cwd for the hooks and the agent.
+            f"cd {WORKSPACE_DIR} 2>/dev/null || true",
+        ]
+
+    def _install_only_hook_command(self) -> str:
+        """The install-only trial's shell: the prologue, then the pre-commands.
+
+        The same prologue as ``_run_command``, so an install-time collector
+        sees the environment the agent would have run in. omp never launches
+        and the post-commands never run — with no session there is nothing to
+        collect after.
+        """
+
+        session_dir = self.environment_logs_dir / self.options.session_dir_name
+        return "\n".join(
+            [
+                *self._run_prologue(session_dir),
+                *hooks.pre_command_lines(self.options.pre_commands),
+            ]
+        )
+
     def _run_command(self, argv: Sequence[str]) -> str:
         """The whole run script: env, hooks, agent, exit status.
 
@@ -610,16 +656,7 @@ class OmpAgent(BaseInstalledAgent):
         session_dir = self.environment_logs_dir / self.options.session_dir_name
         output_path = self.environment_logs_dir / self._OUTPUT_FILENAME
         lines = [
-            "set -uo pipefail",
-            f"{{ {install.bun_path_snippet()}; }} || true",
-            f"mkdir -p {shlex.quote(session_dir.as_posix())} || true",
-            # bun and omp were installed under the original home; pin PATH to
-            # it before relocating HOME to the isolated config home.
-            'ORIG_HOME="$HOME"',
-            'export PATH="$ORIG_HOME/.bun/bin:$PATH"',
-            f"export HOME={shlex.quote(self._config_home)} PI_CONFIG_DIR={CONFIG_DIR_NAME}",
-            # The workspace is the shared cwd for the hooks and the agent.
-            f"cd {WORKSPACE_DIR} 2>/dev/null || true",
+            *self._run_prologue(session_dir),
             *hooks.pre_command_lines(self.options.pre_commands),
             "rc=0",
             f"{' '.join(shlex.quote(part) for part in argv)} "
