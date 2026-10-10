@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "harbor-omp"
-version = "0.3.0"
+version = "0.4.0"
 description = "Harbor agent for omp (oh-my-pi): install, run, and read the session metrics"
 readme = "README.md"
 requires-python = ">=3.12"

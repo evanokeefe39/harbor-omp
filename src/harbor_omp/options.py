@@ -150,7 +150,10 @@ class OmpOptions(InstalledAgentOptions):
         default=False,
         description=(
             "Prove the install without model spend: run() records the exact argv "
-            "and returns without invoking omp, and no hook command runs."
+            "and invokes no agent. pre_commands still run — they are install-"
+            "time evidence, and their failure fails the trial — while "
+            "post_commands do not: with no session there is nothing to collect "
+            "from."
         ),
     )
     config_source: str | None = Field(
