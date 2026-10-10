@@ -29,13 +29,16 @@ run is going by Harbor's ``sync_trajectory`` polling ``convert_trajectory``.
 Both paths build it with ``harbor_omp.trajectory`` — one converter, one session
 reader — and the trajectory's totals are the same numbers the context reports.
 
-Known gaps, stated rather than implied: no resume/load/handoff, no skills or MCP
-seam, and no per-exec timeout. See the README and ``docs/architecture.md``.
+Known gaps, stated rather than implied: no load ATIF (lossy conversion), no
+native ``config=`` (consumer config travels through ``seed``/``config_source``),
+and no per-exec timeout. Resume, load native, handoff, skills and MCP servers
+are implemented. See the README and ``docs/architecture.md``.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -234,10 +237,17 @@ class OmpAgent(BaseInstalledAgent):
 
     # ATIF is the one capability this agent implements; every other flag stays
     # false because Harbor gates on it, and a flag turned on without the
-    # behaviour behind it is a silent gap. ``atif`` is true because
-    # ``convert_trajectory`` builds a validated trajectory and
-    # ``populate_context_post_run`` writes one.
-    capabilities = AgentCapabilities(atif=True)
+    # behaviour behind it is a silent gap. Each true flag has its behaviour
+    # implemented below (resume/load in _run_argv, skills/MCP in
+    # _config_home_command, handoff as a classmethod).
+    capabilities = AgentCapabilities(
+        atif=True,
+        resume=True,
+        load_native_trajectory=True,
+        skills=True,
+        mcp_servers=True,
+        handoff=True,
+    )
     MODEL_CONNECTION = ModelConnectionSpec(passthrough=True)
 
     options_model = OmpOptions
@@ -253,6 +263,8 @@ class OmpAgent(BaseInstalledAgent):
         # measured ``omp --version`` output, so the pin is never claimed as a
         # verified version.
         self._version = None
+        #: Stem of the loaded session file, set by run() when self._load is true.
+        self._load_stem: str | None = None
 
     # ------------------------------------------------------------------
     # Identity and version
@@ -470,7 +482,8 @@ class OmpAgent(BaseInstalledAgent):
         """The in-container config-home step (strict).
 
         Resets the home, copies the seed in when there is one, then installs,
-        enables and configures the plugin. ``set -euo pipefail``: a config step
+        enables and configures the plugin, copies skills from ``skills_dir``,
+        and writes the MCP server config. ``set -euo pipefail``: a config step
         that cannot land fails the trial before the agent runs.
         """
 
@@ -498,6 +511,37 @@ class OmpAgent(BaseInstalledAgent):
                     f"{omp_env} omp plugin config set {name} "
                     f"{shlex.quote(str(key))} {shlex.quote(_setting_value(value))}"
                 )
+        # Skills: copy immediate children of skills_dir into agent/skills/
+        # so omp discovers <skill-name>/SKILL.md under its config root.
+        if self.skills_dir:
+            skills_target = (self._config_dir / "agent" / "skills").as_posix()
+            parts.append(
+                f"mkdir -p {shlex.quote(skills_target)} && "
+                f"cp -r {shlex.quote(self.skills_dir)}/* "
+                f"{shlex.quote(skills_target + '/')}"
+            )
+        # MCP servers: write the mcp.json mapping into agent/mcp.json when
+        # servers are configured.
+        if self.mcp_servers:
+            servers: dict[str, dict[str, object]] = {}
+            for server in self.mcp_servers:
+                if server.transport == "stdio":
+                    servers[server.name] = {
+                        "type": "stdio",
+                        "command": server.command,
+                        "args": server.args,
+                    }
+                else:
+                    transport = (
+                        "http" if server.transport == "streamable-http" else server.transport
+                    )
+                    servers[server.name] = {"type": transport, "url": server.url}
+            mcp_agent_dir = (self._config_dir / "agent").as_posix()
+            parts.append(
+                f"mkdir -p {shlex.quote(mcp_agent_dir)} && "
+                f"echo {shlex.quote(json.dumps({'mcpServers': servers}, indent=2))} > "
+                f"{shlex.quote(mcp_agent_dir + '/mcp.json')}"
+            )
         parts.append("exit 0")
         return "\n".join(parts)
 
@@ -525,6 +569,10 @@ class OmpAgent(BaseInstalledAgent):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
+        # When loading a native trajectory, seed the session into the container
+        # before building the argv that references it.
+        if self._load:
+            self._load_stem = await self._seed_load_trajectory(environment)
         argv, model = self._run_argv(instruction)
         # The argv is recorded before omp launches (and in an install-only
         # trial), so a trial always shows what it would have run.
@@ -640,6 +688,13 @@ class OmpAgent(BaseInstalledAgent):
         ]
         if self.options.thinking:
             argv.append(f"--thinking={self.options.thinking}")
+        if self._resume:
+            argv.append("--continue")
+        # Guard the stem too: a bare --resume before the instruction would
+        # swallow it as the session id, and a None slot cannot be quoted.
+        if self._load and self._load_stem:
+            argv.append("--resume")
+            argv.append(self._load_stem)
         argv.append(instruction)
         return argv, self.model_name
 
@@ -765,3 +820,104 @@ class OmpAgent(BaseInstalledAgent):
         """The session JSONL directory (under Harbor's mounted log dir)."""
 
         return self.environment_logs_dir / self.options.session_dir_name
+
+    # ------------------------------------------------------------------
+    # Handoff
+    # ------------------------------------------------------------------
+    @override
+    @classmethod
+    def handoff(cls, trial_dir: Path, cwd: Path) -> list[str]:
+        """Copy the trial's session into the local omp session location.
+
+        Requires exactly one session JSONL under the trial's session dir (the
+        configured ``session_dir_name`` first, then any single level under
+        ``trial_dir/agent/``).  Copies it into the user's default omp session
+        directory (``~/.omp/sessions/``, respecting ``PI_CONFIG_DIR``) and
+        returns ``["omp", "--resume", <stem>]``.  ``cwd`` is accepted for
+        Harbor's contract only — omp resolves ``--resume`` against its own
+        session dir, so the returned command works from anywhere.
+
+        Raises:
+            ValueError: When ``omp`` is not found on PATH, or when the trial
+                dir does not contain exactly one session file.
+        """
+        if shutil.which("omp") is None:
+            raise ValueError(
+                "omp CLI not found on PATH; install it first: "
+                "bun install -g @oh-my-pi/pi-coding-agent"
+            )
+        sessions = cls._trial_sessions(trial_dir)
+        if len(sessions) != 1:
+            raise ValueError(
+                f"Expected exactly 1 session under {trial_dir / 'agent'}, "
+                f"found {len(sessions)}; handoff supports single-session trials only"
+            )
+        session = sessions[0]
+        # User's default omp config root: $HOME/<PI_CONFIG_DIR> or ~/.omp
+        config_dir_name = os.environ.get("PI_CONFIG_DIR", ".omp")
+        omp_sessions_dir = Path.home() / config_dir_name / "sessions"
+        omp_sessions_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(session, omp_sessions_dir / session.name)
+        return ["omp", "--resume", session.stem]
+
+    @classmethod
+    def _trial_sessions(cls, trial_dir: Path) -> list[Path]:
+        """The trial's session files, under whichever session dir it used.
+
+        ``session_dir_name`` is a configurable option, so look under the
+        current default first and fall back to a one-level scan of
+        ``agent/`` — a trial that overrode the name still hands off, and an
+        ambiguous trial surfaces as a count error at the caller.
+        """
+        name = cls.options_model.model_fields["session_dir_name"].default
+        sessions = sorted((trial_dir / "agent" / name).glob("*.jsonl"))
+        if sessions:
+            return sessions
+        return sorted((trial_dir / "agent").glob("*/*.jsonl"))
+
+    # ------------------------------------------------------------------
+    # Load / Resume
+    # ------------------------------------------------------------------
+    @override
+    def _validate_native_load_trajectory(self, path: Path) -> None:
+        """Reject a file that is not omp session JSONL.
+
+        The name must end ``.jsonl`` — omp resolves ``--resume <stem>`` by that
+        filename inside the session dir, so any other extension would upload a
+        file omp never finds — and every non-blank line must parse as JSON,
+        with the first object carrying ``"type": "session"``.
+        """
+        if path.suffix != ".jsonl":
+            raise ValueError(
+                f"{path} is not omp session JSONL: expected a .jsonl file, "
+                f"which is how omp looks sessions up by id"
+            )
+        from_bytes = path.read_bytes()
+        lines = from_bytes.decode("utf-8").splitlines()
+        non_blank = [ln for ln in lines if ln.strip()]
+        if not non_blank:
+            raise ValueError(f"{path} is not omp session JSONL (blank)")
+        for lineno, line in enumerate(non_blank, start=1):
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{path}:{lineno} is not JSON: {exc}") from exc
+            if lineno == 1 and (not isinstance(obj, dict) or obj.get("type") != "session"):
+                raise ValueError(
+                    f'{path}:1 first object must have "type": "session", '
+                    f"got {obj.get('type', repr(obj))}"
+                )
+
+    @override
+    async def _upload_load_trajectory(self, environment: BaseEnvironment, source: Path) -> None:
+        """Upload the source session file into the container session dir."""
+        session_dir = self.environment_logs_dir / self.options.session_dir_name
+        target = (session_dir / source.name).as_posix()
+        await environment.upload_file(source, target)
+        # The agent user must be able to read the file
+        if environment.default_user is not None:
+            user = shlex.quote(str(environment.default_user))
+            await self.exec_as_root(
+                environment,
+                command=f"chown {user} {shlex.quote(target)}",
+            )
