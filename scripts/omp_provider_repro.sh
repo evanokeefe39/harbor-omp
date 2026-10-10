@@ -13,9 +13,10 @@
 # ended with stopReason "stop", and it made no tool call. Exit 1 if any GREET.
 #
 # Add `-e PI_OPENROUTER_RESPONSES=0` to the docker run to use Chat Completions
-# instead of the Responses API. Recorded 2026-10-10 on omp/18.6.0:
-# OpenInference+Responses 6/6 GREET (3 of them nonce-busted), OpenInference+Chat
-# 0/3, Venice+Responses 0/3.
+# instead of the Responses API. Recorded 2026-10-10 on omp/18.6.0: OpenInference
+# greeted on BOTH wires (Responses 6/6 incl. 3 nonce-busted; Chat 3/3 — an
+# earlier Chat pass that day read 0/3 but kept no gen ids); Venice engaged, 0/3.
+# The host is the variable, not the wire.
 set -uo pipefail
 providers=${1:-"OpenInference Venice"}
 n=${2:-3}
