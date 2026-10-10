@@ -185,9 +185,10 @@ evidence:
    call: **all 21 resolvable greetings came from OpenInference**, and none of the
    working trials did (Venice, Relace, AtlasCloud, Baidu, StreamLake). OpenRouter
    began routing `deepseek/deepseek-v4-flash` to OpenInference partway through
-   the run, and the incumbent was never routed there. The large first-call
-   prompt-cache hits on the greetings were a side effect of OpenRouter's
-   cache-sticky routing, not a cause.
+   the run, and the incumbent was never routed there. The cache pattern on the
+   greetings (a large first-call `cacheRead`) was investigated and ruled out:
+   the nonce-busted runs greeted anyway, and two Chat-wire greetings reported
+   `cacheRead` 0.
 3. **Causal repro.** Real omp 18.6.0 in the benchmark image, same argv and seed,
    upstream pinned through `models.yml` (`openRouterRouting.only`)
    ([`scripts/omp_provider_repro.sh`](../scripts/omp_provider_repro.sh)):
@@ -195,14 +196,28 @@ evidence:
    | upstream | wire format | greeting |
    |---|---|---|
    | OpenInference | Responses API (omp's default for OpenRouter) | **6/6** (3 with a cache-busting nonce) |
-   | OpenInference | Chat Completions (`PI_OPENROUTER_RESPONSES=0`) | 0/3 |
+   | OpenInference | Chat Completions (`PI_OPENROUTER_RESPONSES=0`) | **3/3** (an earlier pass that day read 0/3 — see below) |
    | Venice | Responses API | 0/3 |
 
-**Mechanism:** on OpenRouter's Responses-API path to OpenInference,
-`deepseek-v4-flash` answers omp's system prompt (the `instructions`) as if it
-were the user's message. One reply quoted a system-prompt line back verbatim.
-It needs both the provider and the wire format; neither adapter's code is
-involved.
+**The wire format is not a factor** — corrected 2026-10-10, when a second pass
+greeted on the Chat wire too. The earlier 0/3 Chat reading could not be
+reconciled (that pass kept no generation ids), so both readings stand rather
+than one overwriting the other. What separates the outcomes is the host, not
+the API: OpenInference greeted on both wires; Venice, the control, never did.
+
+**Mechanism — what is established, and what is not.** The host receives the
+whole request: its own record for a greeting reads `native_tokens_prompt`
+8668–8681, omp's full prompt including the task. It answers anyway as if no
+task had arrived (`Ready.`, `Ready. What's the task?`, no tool call,
+`stopReason: stop`). And it does not fail every request: pinned to
+OpenInference, the same omp answered a short *"Reply with the single word
+PELICAN."* prompt correctly, so the greeting appears on omp's real ~8.7k-token
+task prompt [INFERENCE: long-prompt handling on that host]. One greeting
+claimed the message "ends after 'Here is what we know:' — no details", a phrase
+in neither the task file nor omp 18.6.0's package: the reply acted on content
+it never received. What happens *inside* OpenInference is invisible from here.
+The generation ids above are the evidence to report upstream. Neither adapter's
+code is involved.
 
 **The agent-side defect was the silence.** omp exits 0 whenever the model
 answers, so each greeting was scored `reward 0` exactly like a trial that tried
@@ -218,11 +233,23 @@ per pinned upstream:
 |OpenInference|1 step: `Ready. What's the task?`, $0.0002|`NonZeroAgentExitCodeError` "records no tool call"|
 |Venice|30 steps, 37 tool calls, $0.043|no exception, reward 1.0|
 
-**Mitigations, if you hit this upstream** (consumer config, not package
-behaviour): pin or reorder the upstream with
-`compat.openRouterRouting` in a seeded `agent/models.yml`, or export
-`PI_OPENROUTER_RESPONSES=0` from a `pre_command`. Both change what is being
-measured, so record the choice with the run.
+**Mitigation — exclude the host** (consumer config, not package behaviour):
+
+```yaml
+providers:
+  openrouter:
+    compat:
+      openRouterRouting:
+        ignore: [OpenInference]
+```
+
+in a seeded `agent/models.yml` — provider level, so every OpenRouter model
+inherits it — or account-wide at <https://openrouter.ai/settings/privacy>.
+Verified on omp 18.6.0: with `only: [OpenInference]` merged on top of the
+ignore, the request fails with OpenRouter's 404 "All providers have been
+ignored", so the list reaches the request. `PI_OPENROUTER_RESPONSES=0` does
+**not** help (the Chat wire greeted too). Excluding a host changes what is
+being measured, so record the choice with the run.
 
 **Consequence for these numbers:** the 22 no-op trials say nothing about the
 agent. The honest reading of this run is **2 passed / 6 ran and failed / 22 never

@@ -157,11 +157,13 @@ Other deliberate limits:
   a 0 exit the agent checks the session for a tool call. If there is none, it
   raises Harbor's `NonZeroAgentExitCodeError`, and the trial is recorded as
   errored (and retryable) instead of being scored. The observed cause was
-  OpenRouter's Responses API served by the OpenInference upstream, which made
-  `deepseek-v4-flash` answer omp's system prompt instead of the task
-  (`docs/worked-example.md` § 3). A task legitimately answered in prose alone
-  would trip this; a task verified against the environment cannot pass without
-  acting on it.
+  OpenRouter routing the request to its **OpenInference** upstream, which
+  answered as if no task had arrived — on both the Responses and the Chat
+  Completions wire (`docs/worked-example.md` § 3). Exclude it with
+  `compat.openRouterRouting.ignore: [OpenInference]` in a seeded
+  `agent/models.yml`. A task legitimately answered in prose alone would trip
+  this (tracked in issue #8); a task verified against the environment cannot
+  pass without acting on it.
 - **The instruction is passed as a positional argv element**, quoted by the
   agent — there is no stdin/env prompt channel.
 - **File modes are not preserved** by `extra_files`; a `pre_command` that needs

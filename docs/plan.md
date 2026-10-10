@@ -10,25 +10,26 @@
 acceptance (see § 3), so the light phase is over: the spec and design graduate
 from backfilled records to contracts, and behavioural work — § 4, and § 5's
 either/or closes — is now in scope. The one caveat is the silent no-op trials
-found in the 30-task run (`docs/worked-example.md` § 3): they are a **defect to
-fix**, not an accepted limitation, and no pass/fail rate is trustworthy until
-they are excluded.
+found in the 30-task run (`docs/worked-example.md` § 3): fixed 2026-10-10 by
+the no-op guard (PR #7) — a run that never called a tool is now failed, not
+scored — but that run's pass/fail rate stays untrustworthy until it is rerun
+with the OpenInference upstream excluded.
 
 ## Status at a glance
 
 | # | Workstream | Status | Proven by |
 |---|---|---|---|
-| 1 | Verify the package | ✅ done | 116 tests, ruff, format, `lint-imports` — all green |
+| 1 | Verify the package | ✅ done | 120 tests, ruff, format, `lint-imports` — all green |
 | 2 | Container smoke | ✅ done | `container_smoke.py` on real ubuntu:24.04, exit 0 |
 | 3 | Real-trial acceptance | ✅ done | acceptance trial, 2 GiB Daytona sandbox ([run record](worked-example.md#2-the-acceptance-trial)) |
 | 4 | harness-evals cutover | ⬜ open | — (unblocked: § 3 passed; needs a kwargs mapping layer) |
 | 5 | README gaps | ⬜ open | — (unblocked) |
-| 6 | Publishing | ✅ done | public repo, 3 PRs merged, CI green |
+| 6 | Publishing | ✅ done | public repo, 7 PRs merged, CI green |
 
 ## 1. Verify the package — done
 
 ```bash
-uv sync && uv run pytest -q            # 116 passed
+uv sync && uv run pytest -q            # 120 passed
 uv run ruff check src tests scripts    # clean
 uv run ruff format --check src tests   # clean
 uv run lint-imports                    # 3 kept, 0 broken
@@ -75,8 +76,9 @@ This is the evidence that Harbor's environment class, the `/logs/agent` mount
 and the upload path work with this agent. It also leaves one caveat that the
 spec's `[NEEDS CLARIFICATION]` items do **not** fully retire: a standalone run
 has no `profile_mismatches` signal, and a later 30-task run surfaced silent
-no-op trials — **22 of 30** (`docs/worked-example.md` § 3) — that must be
-excluded before any pass/fail rate is trusted. The run itself was clean:
+no-op trials — **22 of 30** (`docs/worked-example.md` § 3) — that the no-op
+guard now fails instead of scoring (PR #7), leaving the 30-task rate unquotable
+until a rerun excludes the OpenInference upstream. The run itself was clean:
 30/30 trials in 46 m 13 s at four-in-flight, $0.43, 2 passed.
 
 ## 4. harness-evals cutover — open, unblocked
@@ -109,7 +111,7 @@ resume/load/handoff, then native config / skills / MCP.
 ## 6. Publishing — done
 
 The public repo exists (`github.com/evanokeefe39/harbor-omp`), `main` is the
-default branch, CI runs on every push/PR, and three PRs have merged. **PyPI is
+default branch, CI runs on every push/PR, and PRs #1–#7 have merged. **PyPI is
 not published** — `uv add harbor-omp` in the README is aspirational until it is.
 That step needs an explicit go-ahead.
 
@@ -122,13 +124,16 @@ That step needs an explicit go-ahead.
 | (PR #1) | `test(trajectory)` — fixed a Linux-only ENAMETOOLONG defect CI exposed |
 | `229050b` | `chore(docs)` — dropped the speculative `other-harnesses.md`; ignored `.env` (PR #2) |
 | `8ef5b62` | `docs(architecture)` — lifecycle rendered as a Mermaid sequence diagram (PR #3) |
+| (PRs #4–#7) | run records (`worked-example`) and `fix(run)` — the no-op guard (v0.2.1) |
 
 ## Next actions
 
 1. ~~**Fix the silent no-op trials**~~ — done 2026-10-10. Root cause is upstream
-   (OpenRouter Responses API × OpenInference; `docs/worked-example.md` § 3). The
-   agent now raises a run with no tool call as a failed agent run instead of
-   letting it be scored.
+   (OpenRouter routing the task prompt to the OpenInference upstream, which
+   answers as if no task arrived; `docs/worked-example.md` § 3). The agent now
+   raises a run with no tool call as a failed agent run instead of letting it
+   be scored. Next: rerun fast-30 with the upstream excluded (`ignore:
+   [OpenInference]`) for the first quotable rate.
 2. **§ 4 cutover** — unblocked, but needs the kwargs mapping layer named there.
 3. **§ 5 README gaps** — streaming first; no sandbox needed.
 4. **PyPI** — needs an explicit go-ahead; nothing is published.

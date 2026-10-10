@@ -1,0 +1,7 @@
+# Shell scripts run inside Linux containers: `scripts/omp_provider_repro.sh`
+# is documented as a `docker run … bash /repro/…` command, and the fast-30
+# workflow mounts these paths into the task image. A Windows checkout with
+# `core.autocrlf=true` rewrote them to CRLF, which bash rejects
+# (`$'\r': command not found`) before the first line of work — see the
+# 2026-10-10 defect row in DEFECTS.md.
+*.sh text eol=lf
