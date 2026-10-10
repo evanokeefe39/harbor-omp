@@ -110,9 +110,10 @@ is part of the output, so `AgentInfo.version` reads `omp/18.6.0`).
 implement; publish a missing metric as a confident zero; let a post-command
 change a verdict.
 
-**Out of scope** (declared `no`/`partly` in the README): resume/load/handoff,
-native `config=`, the skills/MCP seam, a per-exec timeout, streaming
-`AgentContext` (only the trajectory streams).
+**Out of scope** (declared `no`/`partly` in the README): load ATIF
+(lossy conversion — fabricating an omp session JSONL from ATIF steps),
+native `config=` (consumer config travels through `seed`/`config_source`),
+a per-exec timeout, streaming `AgentContext` (only the trajectory streams).
 
 **Reserved for human review:** publishing (PyPI, public remote) and any widening
 of the capability declaration.

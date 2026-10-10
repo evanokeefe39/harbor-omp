@@ -281,7 +281,44 @@ Pre-flight a config without spending a token:
 harbor run -c my.config.json --print-config      # remember: defaults are hidden
 ```
 
-## 5. Summary of what the runs proved
+## 5. Capability smoke — resume, load, skills, MCP (2026-10-10)
+
+The capability closers (`resume`, `load native`, `handoff`, `skills`,
+`mcp_servers`) were verified against **real omp 18.6.0 in the benchmark image**,
+on the exact files the agent writes and the exact argv it passes
+([`scripts/capability_smoke.sh`](../scripts/capability_smoke.sh), with
+[`scripts/mcp_probe_server.py`](../scripts/mcp_probe_server.py) as the stdio
+server). Every cell is wrapped in `timeout`, so a stall names itself:
+
+```
+omp: omp/18.6.0
+CELL base-no-skills rc=0 :: Working... PELICAN
+CELL d6-read-skill rc=0 :: [Skill file: /root/.omp/agent/skills/pdf/SKILL.md] --- name: pdf description: Smoke probe skill for the capability closers ---  PROBE-SKILL-BODY
+CELL d6-run-skill rc=0 :: Working... PELICAN
+CELL d3-turn1 rc=0 :: Working... OK.
+CELL d3-turn2 rc=0 :: Working... BANANA
+CELL d4-load rc=0 :: Working... BANANA
+CELL d7-read-mcp rc=0 :: PONG
+CELL d7-run-with-mcp rc=0 :: Working... Warning: MCP server "probe" failed to connect: Connection closed before tools became available; its tools are unavailable for this run. PELICAN
+done
+```
+
+| Cell | Proves |
+|---|---|
+| `base-no-skills` | a plain run still answers — the new writes are not a regression |
+| `d6-read-skill` | the skill at `<config>/agent/skills/pdf/SKILL.md`, the path `_config_home_command` writes, is discovered by omp |
+| `d6-run-skill` | a run with skills active does not stall |
+| `d3-turn2` against `d3-turn1` | `--continue` in the same `--session-dir` carries the thread (`BANANA`) — the argv the agent adds on `resume()` |
+| `d4-load` | `--resume <stem>` accepts a session seeded as a file — the argv the agent adds on `load()` |
+| `d7-read-mcp` | the `mcp.json` the agent writes is discovered and connected (`PONG`) |
+| `d7-run-with-mcp` | a configured server that misbehaves does not fail the run: omp warns and continues |
+
+Two observations to carry forward: a misbehaving MCP server degrades to a
+warning rather than failing the trial; and one earlier smoke cell stalled
+unbounded — no server process spawned, empty session directory — which is
+unresolved and recorded in `DEFECTS.md` (2026-10-10).
+
+## 6. Summary of what the runs proved
 
 | Question | Answer |
 |---|---|
