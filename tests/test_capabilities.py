@@ -382,8 +382,15 @@ def test_handoff_requires_omp_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
         OmpAgent.handoff(Path("/tmp/trial"), Path("/tmp/cwd"))
 
 
-def test_handoff_requires_exactly_one_session(tmp_path: Path) -> None:
-    """handoff raises ValueError when no session or multiple sessions exist."""
+def test_handoff_requires_exactly_one_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """handoff raises ValueError when no session or multiple sessions exist.
+
+    ``shutil.which`` is patched so the count check is reached on a machine
+    without omp installed (CI) instead of failing on the PATH guard first.
+    """
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/omp")
     trial_dir = tmp_path / "trial"
     (trial_dir / "agent" / "omp-sessions").mkdir(parents=True)
 
@@ -407,10 +414,7 @@ def test_handoff_copies_session_and_returns_argv(
     The local home is isolated on purpose: the first cut of this test copied
     into the developer's real ``~/.omp/sessions`` (DEFECTS, 2026-10-10).
     """
-    # Skip if omp is not installed
-    if shutil.which("omp") is None:
-        pytest.skip("omp not on PATH")
-
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/omp")
     monkeypatch.delenv("PI_CONFIG_DIR", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -431,9 +435,7 @@ def test_handoff_finds_a_trial_with_a_custom_session_dir(
 ) -> None:
     """session_dir_name is configurable: a trial that overrode it still hands
     off, via the one-level fallback scan under agent/."""
-    if shutil.which("omp") is None:
-        pytest.skip("omp not on PATH")
-
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/omp")
     monkeypatch.delenv("PI_CONFIG_DIR", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
