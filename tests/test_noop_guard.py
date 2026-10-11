@@ -115,16 +115,23 @@ class ShellEnvironment:
     ``status`` — the two things the real CLI does that the guard reads.
     """
 
-    def __init__(self, session_lines: list[str], status: int = 0) -> None:
+    def __init__(
+        self, session_lines: list[str], status: int = 0, write_session: bool = True
+    ) -> None:
         # The lines are printf *arguments*, never its format: a format string
         # would decode the JSON's own escapes (\" -> ") and write a session omp
         # never would.
         session = " ".join(shlex.quote(line) for line in session_lines)
+        write = (
+            f"  printf '%s\\n' {session} > \"$dir/session.jsonl\"\n"
+            if write_session
+            else ""
+        )
         self.prelude = (
             "omp() {\n"
             '  for arg in "$@"; do case "$arg" in --session-dir=*) dir="${arg#--session-dir=}";; esac; done\n'
             '  mkdir -p "$dir"\n'
-            f"  printf '%s\\n' {session} > \"$dir/session.jsonl\"\n"
+            f"{write}"
             f"  return {status}\n"
             "}\n"
             "bun() {\n:\n}\n"
@@ -172,8 +179,34 @@ def test_a_run_that_never_called_a_tool_fails_instead_of_scoring(tmp_path: Path)
     agent failure, not a finished run the verifier will score 0."""
     env = ShellEnvironment([USER_TASK, GREETING], status=0)
 
-    with pytest.raises(NonZeroAgentExitCodeError, match="no tool call"):
+    with pytest.raises(NonZeroAgentExitCodeError, match="no tool call") as raised:
         _run(_agent(tmp_path), env)
+
+    # A session exists and has no tool call in it: the model answered.
+    assert "the model answered without acting" in str(raised.value)
+
+
+def test_a_run_that_never_started_omp_says_so(tmp_path: Path) -> None:
+    """The other failure shape, which is not a no-op at all: the run script
+    ended before the launch, so no session file exists. A pre-command that
+    exits — ``exit 0`` as silently as a failure — does this, and the message
+    must name it instead of blaming the model (it blamed the model on
+    2026-10-10, while omp was never launched)."""
+
+    env = ShellEnvironment([], status=0, write_session=False)
+
+    with pytest.raises(NonZeroAgentExitCodeError) as raised:
+        _run(_agent(tmp_path), env)
+
+    message = str(raised.value)
+    # The exception quotes the whole guard script, so read the branch that
+    # actually spoke: the stderr line, not the command text.
+    assert "stderr: harbor-omp: no session file" in message
+    assert "omp never started" in message
+    assert "stderr: harbor-omp: omp left a session" not in message
+
+    # Goes red: put the guard back to its single message (the one that asserted
+    # the model had answered) — the assertions above then fail on the first one.
 
 
 def test_a_tool_call_quoted_in_text_is_not_a_tool_call(tmp_path: Path) -> None:
