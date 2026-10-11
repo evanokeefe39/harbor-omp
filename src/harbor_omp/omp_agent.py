@@ -675,11 +675,22 @@ class OmpAgent(BaseInstalledAgent):
     def _no_op_guard_command(self) -> str:
         """Fail when omp's session records no tool call.
 
-        Pre: omp has exited 0. Post: exits 0 when any session file under the
+        Pre: the run script reached its end with status 0 — which is *not* the
+        same as omp having run. Post: exits 0 when any session file under the
         session dir contains ``TOOL_CALL_MARKER``; otherwise prints the reason
         on stderr and exits 1, so ``exec_as_agent`` raises Harbor's
-        ``NonZeroAgentExitCodeError``. A missing session dir counts as no tool
-        call: a run that left no session cannot be shown to have acted.
+        ``NonZeroAgentExitCodeError``. A run that left no session cannot be
+        shown to have acted, so both failure shapes below are reported as
+        failed runs rather than scored ones.
+
+        The reason names the case the evidence supports, because the two have
+        nothing in common: a session with no tool call in it means the model
+        answered without acting (the 2026-10-09 OpenInference idle greeting),
+        while *no session file at all* means omp never started — a pre-command
+        that exits ends the script that launches omp, and ``exit 0`` does it as
+        silently as a failure (a caller's trailing ``exit 0`` cost a whole
+        acceptance batch on 2026-10-10, and this message's first version
+        asserted the model had answered).
 
         ``grep`` reads the files itself; there is no pipe, because Harbor runs
         every exec under ``set -o pipefail``, and a reader killed by
@@ -687,15 +698,32 @@ class OmpAgent(BaseInstalledAgent):
         """
 
         session_dir = (self.environment_logs_dir / self.options.session_dir_name).as_posix()
-        reason = (
-            f"harbor-omp: omp exited 0 but its session under {session_dir} records "
-            "no tool call: the model answered without acting on the task, so the "
-            "run is failed instead of scored (see omp.txt for what it said)"
+        no_tool_call = (
+            f"harbor-omp: omp left a session under {session_dir} but it records no "
+            "tool call: the model answered without acting on the task, so the run "
+            "is failed instead of scored (see omp.txt for what it said)"
         )
-        return (
-            f"grep -qsF -- {shlex.quote(TOOL_CALL_MARKER)} "
-            f"{shlex.quote(session_dir)}/*.jsonl "
-            f"|| {{ echo {shlex.quote(reason)} >&2; exit 1; }}"
+        no_session = (
+            f"harbor-omp: no session file under {session_dir}: omp never started, "
+            "so the task was not attempted. A pre-command that exits — including "
+            "`exit 0` — ends the run script before the launch; check the "
+            "pre-command output"
+        )
+        # Only the directory is quoted: the glob must stay outside the quotes
+        # to expand.
+        session_glob = f"{shlex.quote(session_dir)}/*.jsonl"
+        return "\n".join(
+            [
+                f"if grep -qsF -- {shlex.quote(TOOL_CALL_MARKER)} {session_glob}; then",
+                "  exit 0",
+                f"elif ls {session_glob} >/dev/null 2>&1; then",
+                f"  echo {shlex.quote(no_tool_call)} >&2",
+                "  exit 1",
+                "else",
+                f"  echo {shlex.quote(no_session)} >&2",
+                "  exit 1",
+                "fi",
+            ]
         )
 
     def _effective_run_flags(self) -> list[str]:

@@ -25,6 +25,13 @@ the three hooks below — the fields live on ``OmpOptions`` (``extra_files``,
       so a trial never spends model tokens on an environment that failed its
       own checks. A harness that wants a best-effort pre-command writes
       ``... || true`` itself.
+    * A pre-command must not ``exit`` at all. The commands share the script
+      that launches omp, so an ``exit`` ends the run where it stands: ``exit 1``
+      is the documented abort above, but ``exit 0`` is silent — the remaining
+      pre-commands, the agent and the post-commands never run, and the run
+      reports the script's 0. A caller writes the command to *return* its
+      status instead (the no-op guard fails such a trial and names this case,
+      but the run is already lost).
 
     The pre-commands run in an ``install_only`` trial too — install-time
     evidence is what such a trial exists to capture — while omp never launches
