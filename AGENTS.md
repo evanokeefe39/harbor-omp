@@ -57,6 +57,9 @@ agent itself.
 
 1. `uv run pytest -q` green.
 2. `uv run ruff check src tests scripts` clean.
-3. Registers updated for the change.
-4. `README.md` known-gaps table still true (flipping a capability means editing
+3. `uv lock --check` clean — the lock carries the project's own version, so a
+   manifest bump without a re-lock leaves a tree that the next `uv run` dirties
+   (the defect recorded as SOLO-132).
+4. Registers updated for the change.
+5. `README.md` known-gaps table still true (flipping a capability means editing
    both).
